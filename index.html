@@ -1,4 +1,42 @@
 <!DOCTYPE html>
+<!--
+================================================================================
+  ENOMAD 케어젠 WMS — Cursor AI 작업 가이드
+================================================================================
+  현재 상태: 핵심 골격 동작 (입고·출고·재고·트랜잭션·리무벌 CRUD)
+  배포: GitHub Pages (koh-enomad.github.io) / DB: Firebase Firestore
+  구조: 단일 HTML + CDN Firebase (멀티 고객사·로그인 단계에서 React 전환 권장)
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 작업 우선순위 (위에서부터)                                                │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [P1] 상품 수정/삭제        → window.editProd / deleteProd  ✅ 구현됨       │
+  │ [P1] 출고취소 시 재고복원   → window.delTx + syncProductStock  ✅ 구현됨    │
+  │ [P2] 트랜잭션 수정          → window.editTx / saveTx  ✅ 구현됨              │
+  │ [P2] PLT/BOX 자동환산       → boxQty + BOX 입력 → pcs 자동계산  ✅ 구현됨     │
+  │ [P2] 리무벌→재고 연동       → saveRm / editRm CA입고→transactions  ✅ 구현됨 │
+  │ [P3] 로그인/인증            → Firebase Auth + Firestore Rules 잠그기       │
+  │ [P3] 페이지네이션           → loadHist/loadIn/loadOut (전체로드 → limit)   │
+  │ [P3] 엑셀 bulk import       → 신규 기능 (기존 시트 일괄 업로드)            │
+  │ [P4] 재고회전율 리포트      → 신규 페이지                                  │
+  │ [P4] 입고예정(ETA) 관리     → ICN→LAX 운송중 화물 추적                     │
+  │ [P4] FBA Shipment Plan      → 출고 시 ASIN/FNSKU/carton label 연동         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  각 작업 지점은 코드 내 "TODO[Pn]:" 주석으로 표시됨. Cursor에서 검색하세요.
+
+  ※ 데이터 모델
+    products/{id}      : name, asin, fnsku, upc, boxQty, minStock, currentStock, note, createdAt
+    transactions/{id}  : date, type(입고|출고), product, productId, qty, balance, txType, pltbox, tracking, note, removalId?, createdAt
+    removals/{id}      : date, product, outQty, tracking, caQty, caDate, note, inboundTxId?, createdAt
+    _meta/seeded       : seed 중복방지 플래그 (삭제하면 재적재됨)
+
+  ※ 재고 일관성 규칙
+    - 입고/출고 시 products.currentStock 을 직접 업데이트하고
+      transactions.balance 에 그 시점 잔여재고를 스냅샷으로 기록함.
+    - 따라서 트랜잭션 삭제/수정 시 currentStock 재계산 로직이 반드시 필요 (P1).
+================================================================================
+-->
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -116,6 +154,17 @@ textarea{resize:vertical;min-height:72px}
     <button class="nb" data-page="outbound"><span class="ni">⬆️</span>출고 처리</button>
     <button class="nb" data-page="history"><span class="ni">📋</span>입출고 내역</button>
     <button class="nb" data-page="removals"><span class="ni">↩️</span>리무벌 관리</button>
+    <!-- TODO[P3]: 엑셀 bulk import 메뉴 추가
+         <button class="nb" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
+         - SheetJS(xlsx) CDN 로드 → 시트 파싱 → products/transactions 일괄 addDoc
+         - 기존 구글시트 형식(날짜,입/출고,제품명,수량,잔여재고,비고)을 그대로 매핑 -->
+    <!-- TODO[P4]: 입고예정(ETA) 관리 메뉴 추가
+         <button class="nb" data-page="eta"><span class="ni">🛫</span>입고 예정</button>
+         - 신규 컬렉션 inbound_plans/{id}: product, qty, etd, eta, awb, status(운송중|도착|입고완료)
+         - ICN→LAX 운송중 화물 추적, 도착 시 입고처리로 전환 -->
+    <!-- TODO[P4]: 재고회전율 리포트 메뉴 추가
+         <button class="nb" data-page="report"><span class="ni">📈</span>리포트</button>
+         - 월별/상품별 입출고 집계, 재고회전율, 차트(chart.js CDN) -->
     <div class="side-lbl">바로가기</div>
     <button class="nb" onclick="openMo('mo-in')"><span class="ni">+</span>입고 등록</button>
     <button class="nb" onclick="openMo('mo-out')"><span class="ni">↑</span>출고 등록</button>
@@ -241,7 +290,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>비고</th></tr></thead>
+          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-hist"></tbody>
         </table></div>
       </div>
@@ -275,10 +324,15 @@ textarea{resize:vertical;min-height:72px}
       <div class="fg"><label>FNSKU</label><input id="p-fnsku" placeholder="X00XXXXXXXXX"></div>
       <div class="fg"><label>UPC</label><input id="p-upc"></div>
       <div class="fg" id="p-stock-wrap" style="display:none"><label>현재 재고 (pcs)</label><input type="number" id="p-stock" value="0" min="0"></div>
+      <div class="fg"><label>1BOX당 수량 (pcs)</label><input type="number" id="p-boxqty" value="0" min="0" placeholder="예: 126"></div>
       <div class="fg"><label>최소 재고 알림 (pcs)</label><input type="number" id="p-min" value="500" min="0"></div>
       <div class="fg s2"><label>비고</label><textarea id="p-note"></textarea></div>
     </div></div>
-    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-prod')">취소</button><button class="btn btn-p" onclick="saveProd()">저장</button></div>
+    <div class="mo-ft">
+      <button class="btn btn-ng" id="p-del-btn" style="display:none;margin-right:auto" onclick="deleteProd()">삭제</button>
+      <button class="btn" onclick="closeMo('mo-prod')">취소</button>
+      <button class="btn btn-p" onclick="saveProd()">저장</button>
+    </div>
   </div>
 </div>
 
@@ -287,9 +341,12 @@ textarea{resize:vertical;min-height:72px}
     <div class="mo-hd"><span class="mo-title">입고 등록</span><button class="mo-x" onclick="closeMo('mo-in')">×</button></div>
     <div class="mo-bd"><div class="g2">
       <div class="fg"><label>날짜 *</label><input type="date" id="i-date"></div>
-      <div class="fg"><label>상품 *</label><select id="i-prod"></select></div>
+      <div class="fg"><label>상품 *</label><select id="i-prod" onchange="onInProdChange()"></select></div>
+      <div class="fg"><label>BOX 수량</label><input type="number" id="i-box" min="0" step="0.01" placeholder="0" oninput="calcQtyIn()"></div>
       <div class="fg"><label>수량 (pcs) *</label><input type="number" id="i-qty" min="1" placeholder="0"></div>
-      <div class="fg"><label>PLT / BOX 구성</label><input id="i-plt" placeholder="6PLT (72BOX)"></div>
+      <div class="fg s2"><span id="i-box-hint" class="tx-sm tx-m" style="display:none"></span></div>
+      <div class="fg"><label>PLT / BOX 구성</label><input id="i-plt" placeholder="6PLT (72BOX)" oninput="calcQtyIn()"></div>
+      <div class="fg s2"><span id="i-plt-warn" class="tx-sm" style="color:var(--wn)"></span></div>
       <div class="fg s2"><label>AWB / 참조번호</label><input id="i-awb" placeholder="MAWB 또는 HAWB"></div>
       <div class="fg s2"><label>비고</label><textarea id="i-note"></textarea></div>
     </div></div>
@@ -302,8 +359,12 @@ textarea{resize:vertical;min-height:72px}
     <div class="mo-hd"><span class="mo-title">출고 등록</span><button class="mo-x" onclick="closeMo('mo-out')">×</button></div>
     <div class="mo-bd"><div class="g2">
       <div class="fg"><label>날짜 *</label><input type="date" id="o-date"></div>
-      <div class="fg"><label>상품 *</label><select id="o-prod" onchange="showSib()"></select></div>
+      <div class="fg"><label>상품 *</label><select id="o-prod" onchange="onOutProdChange()"></select></div>
+      <div class="fg"><label>BOX 수량</label><input type="number" id="o-box" min="0" step="0.01" placeholder="0" oninput="calcQtyOut()"></div>
       <div class="fg"><label>수량 (pcs) *</label><input type="number" id="o-qty" min="1" placeholder="0"></div>
+      <div class="fg s2"><span id="o-box-hint" class="tx-sm tx-m" style="display:none"></span></div>
+      <div class="fg"><label>PLT / BOX 구성</label><input id="o-plt" placeholder="10BOX" oninput="calcQtyOut()"></div>
+      <div class="fg s2"><span id="o-plt-warn" class="tx-sm" style="color:var(--wn)"></span></div>
       <div class="fg"><label>출고 유형 *</label>
         <select id="o-type">
           <option value="FBA">FBA 입고</option><option value="B2C">B2C 직배송</option>
@@ -321,7 +382,7 @@ textarea{resize:vertical;min-height:72px}
 
 <div class="mo hide" id="mo-rm">
   <div class="mo-box">
-    <div class="mo-hd"><span class="mo-title">리무벌 오더 등록</span><button class="mo-x" onclick="closeMo('mo-rm')">×</button></div>
+    <div class="mo-hd"><span class="mo-title" id="r-mo-title">리무벌 오더 등록</span><button class="mo-x" onclick="closeMo('mo-rm')">×</button></div>
     <div class="mo-bd"><div class="g2">
       <div class="fg"><label>오더 날짜 *</label><input type="date" id="r-date"></div>
       <div class="fg"><label>상품명 *</label><input id="r-prod" placeholder="상품명 직접 입력"></div>
@@ -332,6 +393,28 @@ textarea{resize:vertical;min-height:72px}
       <div class="fg s2"><label>비고</label><textarea id="r-note"></textarea></div>
     </div></div>
     <div class="mo-ft"><button class="btn" onclick="closeMo('mo-rm')">취소</button><button class="btn btn-p" onclick="saveRm()">저장</button></div>
+  </div>
+</div>
+
+<div class="mo hide" id="mo-tx">
+  <div class="mo-box">
+    <div class="mo-hd"><span class="mo-title" id="tx-mo-title">내역 수정</span><button class="mo-x" onclick="closeMo('mo-tx')">×</button></div>
+    <div class="mo-bd"><div class="g2">
+      <div class="fg s2"><label>상품</label><input id="tx-prod" readonly style="background:var(--sur2)"></div>
+      <div class="fg"><label>구분</label><input id="tx-type" readonly style="background:var(--sur2)"></div>
+      <div class="fg"><label>날짜 *</label><input type="date" id="tx-date"></div>
+      <div class="fg"><label>수량 (pcs) *</label><input type="number" id="tx-qty" min="1"></div>
+      <div class="fg" id="tx-txtype-wrap"><label>유형</label>
+        <select id="tx-txtype">
+          <option value="FBA">FBA 입고</option><option value="B2C">B2C 직배송</option>
+          <option value="B2B">B2B 출고</option><option value="REMOVAL">리무벌</option><option value="기타">기타</option>
+        </select>
+      </div>
+      <div class="fg" id="tx-plt-wrap"><label>PLT / BOX 구성</label><input id="tx-plt"></div>
+      <div class="fg s2"><label>Tracking / AWB</label><input id="tx-track"></div>
+      <div class="fg s2"><label>비고</label><textarea id="tx-note"></textarea></div>
+    </div></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-tx')">취소</button><button class="btn btn-p" onclick="saveTx()">저장</button></div>
   </div>
 </div>
 
@@ -346,6 +429,11 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
 
 // ── Config ──────────────────────────────────────────────────
+// TODO[P3]: 로그인/인증 (Firebase Auth)
+//  - 현재 Firestore Rules 가 'allow read,write: if true' → URL 아는 사람 누구나 수정 가능
+//  - import getAuth, signInWithEmailAndPassword 추가 → 로그인 화면 표시
+//  - 인증 후에만 db 접근하도록 가드, Firestore Rules 를 'if request.auth != null' 로 변경
+//  - 고객사별 권한 분리는 멀티 고객사 전환(React) 단계에서 custom claims 활용
 const FB_CFG = {
   apiKey: "AIzaSyB8JNymKcTVkU1VGmsU8rcIY3FFRGWuMMo",
   authDomain: "enoamdwms-carezen.firebaseapp.com",
@@ -357,7 +445,7 @@ const FB_CFG = {
 
 // ── Seed Data ────────────────────────────────────────────────
 const SEED_PRODS = [
-  { id:'kor-3g-30', name:'Korglutide 3g * 30 pcs', asin:'', fnsku:'', upc:'', minStock:500, currentStock:2799, note:'1BOX = 126개 / 6PLT = 72BOX' },
+  { id:'kor-3g-30', name:'Korglutide 3g * 30 pcs', asin:'', fnsku:'', upc:'', boxQty:126, minStock:500, currentStock:2799, note:'1BOX = 126개 / 6PLT = 72BOX' },
   { id:'cyj-hair',  name:'DR.CYJ Intensive Hair Mask', asin:'', fnsku:'', upc:'', minStock:10, currentStock:0, note:'' },
   { id:'dhl-ser',   name:'Dermaheal Vitalizing Serum', asin:'', fnsku:'', upc:'', minStock:10, currentStock:0, note:'' },
 ];
@@ -401,6 +489,8 @@ function setFbStatus(msg, state) {
 let db;
 let prods = [];
 let editingProdId = null;
+let editingTxId = null;
+let editingRmId = null;
 
 // ── 모든 window 함수 먼저 선언 ───────────────────────────────
 // (초기화 완료 전 클릭해도 에러 없이 토스트만 표시)
@@ -414,6 +504,12 @@ window.closeMo     = function(id) {
     editingProdId = null;
     document.getElementById('p-mo-title').textContent = '상품 등록';
     document.getElementById('p-stock-wrap').style.display = 'none';
+    document.getElementById('p-del-btn').style.display = 'none';
+  }
+  if (id === 'mo-tx') editingTxId = null;
+  if (id === 'mo-rm') {
+    editingRmId = null;
+    document.getElementById('r-mo-title').textContent = '리무벌 오더 등록';
   }
 };
 window.filterProds = notReady;
@@ -428,6 +524,14 @@ window.saveRm      = notReady;
 window.delTx       = notReady;
 window.delRm       = notReady;
 window.editProd    = notReady;
+window.deleteProd  = notReady;
+window.editTx      = notReady;
+window.saveTx      = notReady;
+window.editRm      = notReady;
+window.calcQtyIn   = notReady;
+window.calcQtyOut  = notReady;
+window.onInProdChange = notReady;
+window.onOutProdChange = notReady;
 window.showSib     = notReady;
 
 // ── 모달 오버레이 클릭 닫기 ───────────────────────────────────
@@ -522,6 +626,14 @@ try {
     return t.product === p.name;
   }
 
+  function findProdForTx(tx) {
+    if (tx.productId) {
+      const byId = prods.find(function(x) { return x.id === tx.productId; });
+      if (byId) return byId;
+    }
+    return prods.find(function(x) { return x.name === tx.product; }) || null;
+  }
+
   async function syncProductStock(p) {
     const snap = await getDocs(collection(db, 'transactions'));
     var stock = 0;
@@ -537,12 +649,136 @@ try {
     return stock;
   }
 
-  function findProdForTx(tx) {
-    if (tx.productId) {
-      const byId = prods.find(function(x) { return x.id === tx.productId; });
-      if (byId) return byId;
+  async function recalcBalances(p) {
+    const snap = await getDocs(collection(db, 'transactions'));
+    const txs = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+      .filter(function(t) { return txMatchesProduct(t, p); })
+      .sort(function(a, b) {
+        const dc = a.date.localeCompare(b.date);
+        if (dc !== 0) return dc;
+        const as = (a.createdAt && a.createdAt.seconds) || 0;
+        const bs = (b.createdAt && b.createdAt.seconds) || 0;
+        return as - bs;
+      });
+    var balance = 0;
+    for (var i = 0; i < txs.length; i++) {
+      const t = txs[i];
+      if (t.type === '입고') balance += (t.qty || 0);
+      else if (t.type === '출고') balance -= (t.qty || 0);
+      await updateDoc(doc(db, 'transactions', t.id), { balance: balance });
     }
-    return prods.find(function(x) { return x.name === tx.product; }) || null;
+    return balance;
+  }
+
+  async function renameProductRefs(oldName, newName, productId) {
+    if (oldName === newName) return;
+    const txSnap = await getDocs(collection(db, 'transactions'));
+    for (var i = 0; i < txSnap.docs.length; i++) {
+      const d = txSnap.docs[i];
+      const t = d.data();
+      if (t.productId === productId || t.product === oldName) {
+        await updateDoc(d.ref, { product: newName, productId: productId });
+      }
+    }
+    const rmSnap = await getDocs(collection(db, 'removals'));
+    for (var j = 0; j < rmSnap.docs.length; j++) {
+      const r = rmSnap.docs[j].data();
+      if (r.product === oldName) {
+        await updateDoc(rmSnap.docs[j].ref, { product: newName });
+      }
+    }
+  }
+
+  function parsePltBox(str) {
+    if (!str) return { plt: 0, box: 0 };
+    const pltM = str.match(/(\d+(?:\.\d+)?)\s*PLT/i);
+    const boxM = str.match(/(\d+(?:\.\d+)?)\s*BOX/i);
+    return {
+      plt: pltM ? parseFloat(pltM[1]) : 0,
+      box: boxM ? parseFloat(boxM[1]) : 0
+    };
+  }
+
+  function resolveQty(p, boxId, qtyId, pltId) {
+    const boxes = parseFloat(document.getElementById(boxId).value);
+    const pcs = parseInt(document.getElementById(qtyId).value);
+    const boxQty = p.boxQty || 0;
+    if (boxes > 0 && boxQty > 0) return Math.round(boxes * boxQty);
+    if (pcs > 0) return pcs;
+    const parsed = parsePltBox(gv(pltId));
+    if (parsed.box > 0 && boxQty > 0) return Math.round(parsed.box * boxQty);
+    return 0;
+  }
+
+  function updateBoxHint(prodName, hintId) {
+    const p = prods.find(function(x) { return x.name === prodName; });
+    const el = document.getElementById(hintId);
+    if (p && p.boxQty) {
+      el.textContent = '1BOX = ' + p.boxQty.toLocaleString() + ' pcs (BOX 또는 PLT/BOX 입력 시 pcs 자동계산)';
+      el.style.display = '';
+    } else {
+      el.textContent = '';
+      el.style.display = 'none';
+    }
+  }
+
+  function validatePltBox(boxId, pltId, warnId) {
+    const boxes = parseFloat(document.getElementById(boxId).value);
+    const parsed = parsePltBox(gv(pltId));
+    const el = document.getElementById(warnId);
+    if (parsed.box > 0 && boxes > 0 && parsed.box !== boxes) {
+      el.textContent = 'PLT/BOX 구성(' + parsed.box + 'BOX)과 BOX 수량(' + boxes + ') 불일치';
+      return false;
+    }
+    el.textContent = '';
+    return true;
+  }
+
+  async function applyRemovalInbound(rmRef, productName, caQty, caDate, note, existingTxId, tracking) {
+    const p = prods.find(function(x) { return x.name === productName; });
+    if (!p) {
+      toast('등록된 상품 없음 — 재고 반영 스킵', 'wn');
+      return null;
+    }
+    const txData = {
+      date: caDate || today(),
+      type: '입고',
+      product: productName,
+      productId: p.id,
+      qty: caQty,
+      txType: 'REMOVAL',
+      pltbox: '',
+      tracking: tracking || '',
+      note: (note ? note + ' · ' : '') + '리무벌 CA 입고',
+      updatedAt: serverTimestamp()
+    };
+    var txId = existingTxId;
+    if (txId) {
+      await updateDoc(doc(db, 'transactions', txId), txData);
+    } else {
+      const txRef = await addDoc(collection(db, 'transactions'), Object.assign({}, txData, {
+        balance: 0,
+        removalId: rmRef.id,
+        createdAt: serverTimestamp()
+      }));
+      txId = txRef.id;
+      await updateDoc(rmRef, { inboundTxId: txId });
+    }
+    await recalcBalances(p);
+    await syncProductStock(p);
+    return txId;
+  }
+
+  async function clearRemovalInbound(rmRef, inboundTxId) {
+    if (!inboundTxId) return;
+    const txSnap = await getDoc(doc(db, 'transactions', inboundTxId));
+    const p = txSnap.exists() ? findProdForTx(txSnap.data()) : null;
+    await deleteDoc(doc(db, 'transactions', inboundTxId));
+    await updateDoc(rmRef, { inboundTxId: null });
+    if (p) {
+      await recalcBalances(p);
+      await syncProductStock(p);
+    }
   }
 
   function fillSels() {
@@ -605,7 +841,8 @@ try {
         '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        '<td><button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
+        '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
+        '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
     }).join('') || empty(7, '입고 내역 없음');
   }
 
@@ -625,11 +862,15 @@ try {
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        '<td><button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
+        '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
+        '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
     }).join('') || empty(7, '출고 내역 없음');
   }
 
   // HISTORY
+  // TODO[P3]: 페이지네이션 — 현재 전체 트랜잭션을 한번에 로드함.
+  //  데이터 누적되면 느려짐. orderBy + limit(50) + startAfter(lastDoc) 커서 방식으로 전환.
+  //  loadIn / loadOut 도 동일하게 적용 필요.
   async function _loadHist() {
     const pf = (document.getElementById('f-h-p').value || '').toLowerCase();
     const tf = document.getElementById('f-h-t').value || '';
@@ -646,8 +887,9 @@ try {
         '<td class="tr mono">' + (r.balance || 0).toLocaleString() + '</td>' +
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
-        '<td class="tx-sm tx-m">' + (r.note || '') + '</td></tr>';
-    }).join('') || empty(8, '내역 없음');
+        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
+        '<td><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button></td></tr>';
+    }).join('') || empty(9, '내역 없음');
   }
 
   // REMOVALS
@@ -661,7 +903,8 @@ try {
         '<td class="tr mono">' + (r.caQty || '—') + '</td>' +
         '<td>' + (r.caDate || '—') + '</td>' +
         '<td>' + (r.caQty > 0 ? '<span class="badge b-in">입고완료</span>' : '<span class="badge b-wn">대기중</span>') + '</td>' +
-        '<td><button class="btn btn-sm btn-ng" onclick="delRm(\'' + r.id + '\')">삭제</button></td></tr>';
+        '<td class="btn-row"><button class="btn btn-sm" onclick="editRm(\'' + r.id + '\')">수정</button>' +
+        '<button class="btn btn-sm btn-ng" onclick="delRm(\'' + r.id + '\')">삭제</button></td></tr>';
     }).join('') || empty(8, '리무벌 내역 없음');
   }
 
@@ -685,13 +928,18 @@ try {
       asin: gv('p-asin'),
       fnsku: gv('p-fnsku'),
       upc: gv('p-upc'),
+      boxQty: parseInt(document.getElementById('p-boxqty').value) || 0,
       minStock: parseInt(document.getElementById('p-min').value) || 0,
       note: gv('p-note'),
       updatedAt: serverTimestamp()
     };
     if (editingProdId) {
+      const old = prods.find(function(x) { return x.id === editingProdId; });
       data.currentStock = parseInt(document.getElementById('p-stock').value) || 0;
       await updateDoc(doc(db, 'products', editingProdId), data);
+      if (old && old.name !== name) {
+        await renameProductRefs(old.name, name, editingProdId);
+      }
       toast('상품이 수정되었습니다.', 'ok');
     } else {
       data.currentStock = 0;
@@ -703,34 +951,83 @@ try {
     await window.reload();
   };
 
+  window.onInProdChange = function() {
+    updateBoxHint(gv('i-prod'), 'i-box-hint');
+    calcQtyIn();
+  };
+
+  window.onOutProdChange = function() {
+    updateBoxHint(gv('o-prod'), 'o-box-hint');
+    calcQtyOut();
+    showSib();
+  };
+
+  window.calcQtyIn = function() {
+    const p = prods.find(function(x) { return x.name === gv('i-prod'); });
+    if (!p || !p.boxQty) return;
+    const boxes = parseFloat(document.getElementById('i-box').value);
+    const parsed = parsePltBox(gv('i-plt'));
+    if (boxes > 0) {
+      sv('i-qty', String(Math.round(boxes * p.boxQty)));
+    } else if (parsed.box > 0 && !boxes) {
+      sv('i-box', String(parsed.box));
+      sv('i-qty', String(Math.round(parsed.box * p.boxQty)));
+    }
+    validatePltBox('i-box', 'i-plt', 'i-plt-warn');
+  };
+
+  window.calcQtyOut = function() {
+    const p = prods.find(function(x) { return x.name === gv('o-prod'); });
+    if (!p || !p.boxQty) return;
+    const boxes = parseFloat(document.getElementById('o-box').value);
+    const parsed = parsePltBox(gv('o-plt'));
+    if (boxes > 0) {
+      sv('o-qty', String(Math.round(boxes * p.boxQty)));
+    } else if (parsed.box > 0 && !boxes) {
+      sv('o-box', String(parsed.box));
+      sv('o-qty', String(Math.round(parsed.box * p.boxQty)));
+    }
+    validatePltBox('o-box', 'o-plt', 'o-plt-warn');
+  };
+
   window.saveIn = async function() {
-    const date = gv('i-date'), pn = gv('i-prod'), qty = parseInt(document.getElementById('i-qty').value);
-    if (!date || !pn || !qty) { toast('날짜·상품·수량 필수 입력', 'ng'); return; }
+    const date = gv('i-date'), pn = gv('i-prod');
+    if (!date || !pn) { toast('날짜·상품 필수 입력', 'ng'); return; }
     const p = prods.find(function(x) { return x.name === pn; });
     if (!p) { toast('상품 없음', 'ng'); return; }
-    const txRef = await addDoc(collection(db, 'transactions'), {
+    if (!validatePltBox('i-box', 'i-plt', 'i-plt-warn')) {
+      toast('PLT/BOX 구성과 BOX 수량이 일치하지 않습니다.', 'ng'); return;
+    }
+    const qty = resolveQty(p, 'i-box', 'i-qty', 'i-plt');
+    if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
+    await addDoc(collection(db, 'transactions'), {
       date, type: '입고', product: pn, productId: p.id, qty, balance: 0, txType: '입고',
       pltbox: gv('i-plt'), tracking: gv('i-awb'), note: gv('i-note'), createdAt: serverTimestamp()
     });
+    await recalcBalances(p);
     const ns = await syncProductStock(p);
-    await updateDoc(txRef, { balance: ns });
     window.closeMo('mo-in');
     toast('입고 완료 · ' + pn + ' +' + qty.toLocaleString() + ' → 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
     await window.reload();
   };
 
   window.saveOut = async function() {
-    const date = gv('o-date'), pn = gv('o-prod'), qty = parseInt(document.getElementById('o-qty').value), txType = gv('o-type');
-    if (!date || !pn || !qty) { toast('날짜·상품·수량 필수 입력', 'ng'); return; }
+    const date = gv('o-date'), pn = gv('o-prod'), txType = gv('o-type');
+    if (!date || !pn) { toast('날짜·상품 필수 입력', 'ng'); return; }
     const p = prods.find(function(x) { return x.name === pn; });
     if (!p) { toast('상품 없음', 'ng'); return; }
+    if (!validatePltBox('o-box', 'o-plt', 'o-plt-warn')) {
+      toast('PLT/BOX 구성과 BOX 수량이 일치하지 않습니다.', 'ng'); return;
+    }
+    const qty = resolveQty(p, 'o-box', 'o-qty', 'o-plt');
+    if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
     if (qty > (p.currentStock || 0)) { toast('재고 부족 — 현재 ' + (p.currentStock || 0).toLocaleString() + ' pcs', 'ng'); return; }
-    const txRef = await addDoc(collection(db, 'transactions'), {
+    await addDoc(collection(db, 'transactions'), {
       date, type: '출고', product: pn, productId: p.id, qty, balance: 0, txType,
-      tracking: gv('o-track'), note: gv('o-note'), createdAt: serverTimestamp()
+      pltbox: gv('o-plt'), tracking: gv('o-track'), note: gv('o-note'), createdAt: serverTimestamp()
     });
+    await recalcBalances(p);
     const ns = await syncProductStock(p);
-    await updateDoc(txRef, { balance: ns });
     window.closeMo('mo-out');
     toast('출고 완료 · ' + pn + ' -' + qty.toLocaleString() + ' → 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
     await window.reload();
@@ -738,15 +1035,44 @@ try {
 
   window.saveRm = async function() {
     const date = gv('r-date'), product = gv('r-prod'), outQty = parseInt(document.getElementById('r-qty').value) || 0;
+    const caQty = parseInt(document.getElementById('r-caqty').value) || 0;
+    const caDate = gv('r-cadate');
+    const note = gv('r-note');
+    const tracking = gv('r-track');
     if (!date || !product || !outQty) { toast('날짜·상품명·수량 필수 입력', 'ng'); return; }
-    await addDoc(collection(db, 'removals'), {
-      date, product, outQty, tracking: gv('r-track'),
-      caQty: parseInt(document.getElementById('r-caqty').value) || 0,
-      caDate: gv('r-cadate'), note: gv('r-note'), createdAt: serverTimestamp()
-    });
+    if (caQty > 0 && !caDate) { toast('CA 입고 수량 입력 시 입고일을 입력해주세요.', 'ng'); return; }
+
+    var rmRef;
+    if (editingRmId) {
+      rmRef = doc(db, 'removals', editingRmId);
+      const oldSnap = await getDoc(rmRef);
+      const oldData = oldSnap.exists() ? oldSnap.data() : {};
+      var inboundTxId = oldData.inboundTxId || null;
+      if (oldData.product !== product && inboundTxId) {
+        await clearRemovalInbound(rmRef, inboundTxId);
+        inboundTxId = null;
+      }
+      await updateDoc(rmRef, {
+        date, product, outQty, tracking, caQty, caDate, note, updatedAt: serverTimestamp()
+      });
+      if (caQty > 0) {
+        await applyRemovalInbound(rmRef, product, caQty, caDate, note, inboundTxId, tracking);
+      } else if (inboundTxId) {
+        await clearRemovalInbound(rmRef, inboundTxId);
+      }
+      toast('리무벌 오더가 수정되었습니다.', 'ok');
+    } else {
+      rmRef = await addDoc(collection(db, 'removals'), {
+        date, product, outQty, tracking, caQty, caDate, note, createdAt: serverTimestamp()
+      });
+      if (caQty > 0) {
+        await applyRemovalInbound(rmRef, product, caQty, caDate, note, null, tracking);
+      }
+      toast('리무벌 오더 등록됨' + (caQty > 0 ? ' · CA 입고 ' + caQty + 'pcs 반영' : ''), 'ok');
+    }
     window.closeMo('mo-rm');
-    toast('리무벌 오더 등록됨', 'ok');
     await loadRm();
+    if (caQty > 0) await window.reload();
   };
 
   window.delTx = async function(id) {
@@ -760,17 +1086,101 @@ try {
     if (!confirm(msg)) return;
     await deleteDoc(doc(db, 'transactions', id));
     var ns = null;
-    if (p) ns = await syncProductStock(p);
+    if (p) {
+      ns = await syncProductStock(p);
+      await recalcBalances(p);
+    }
     toast(label + ' 취소 완료' + (ns !== null ? ' · 잔여 ' + ns.toLocaleString() + ' pcs' : ''), 'ok');
     await window.reload();
     _loadIn(); _loadOut(); _loadHist();
   };
 
   window.delRm = async function(id) {
-    if (!confirm('삭제하시겠습니까?')) return;
-    await deleteDoc(doc(db, 'removals', id));
+    if (!confirm('삭제하시겠습니까?\n※ CA 입고로 반영된 재고도 함께 취소됩니다.')) return;
+    const rmRef = doc(db, 'removals', id);
+    const rmSnap = await getDoc(rmRef);
+    if (rmSnap.exists() && rmSnap.data().inboundTxId) {
+      await clearRemovalInbound(rmRef, rmSnap.data().inboundTxId);
+    }
+    await deleteDoc(rmRef);
     toast('삭제됨', 'br');
-    loadRm();
+    await loadRm();
+    await window.reload();
+  };
+
+  window.editTx = async function(id) {
+    const txSnap = await getDoc(doc(db, 'transactions', id));
+    if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
+    const tx = Object.assign({ id: id }, txSnap.data());
+    if (tx.txType === 'REMOVAL') {
+      toast('리무벌 입고 내역은 리무벌 관리에서 수정해주세요.', 'wn');
+      return;
+    }
+    editingTxId = id;
+    document.getElementById('tx-mo-title').textContent = tx.type + ' 내역 수정';
+    sv('tx-prod', tx.product);
+    sv('tx-type', tx.type);
+    sv('tx-date', tx.date);
+    sv('tx-qty', String(tx.qty || 0));
+    sv('tx-plt', tx.pltbox || '');
+    sv('tx-track', tx.tracking || '');
+    sv('tx-note', tx.note || '');
+    document.getElementById('tx-plt-wrap').style.display = tx.type === '입고' ? '' : 'none';
+    document.getElementById('tx-txtype-wrap').style.display = tx.type === '출고' ? '' : 'none';
+    if (tx.type === '출고') sv('tx-txtype', tx.txType || 'FBA');
+    document.getElementById('mo-tx').classList.remove('hide');
+  };
+
+  window.saveTx = async function() {
+    if (!editingTxId) return;
+    const txSnap = await getDoc(doc(db, 'transactions', editingTxId));
+    if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
+    const oldTx = txSnap.data();
+    const date = gv('tx-date');
+    const qty = parseInt(document.getElementById('tx-qty').value);
+    if (!date || !qty) { toast('날짜·수량 필수 입력', 'ng'); return; }
+    const p = findProdForTx(oldTx);
+    if (!p) { toast('연결된 상품을 찾을 수 없습니다.', 'ng'); return; }
+    if (oldTx.type === '출고') {
+      const available = (p.currentStock || 0) + (oldTx.qty || 0);
+      if (qty > available) {
+        toast('재고 부족 — 최대 ' + available.toLocaleString() + ' pcs', 'ng');
+        return;
+      }
+    }
+    const data = {
+      date, qty, note: gv('tx-note'), updatedAt: serverTimestamp()
+    };
+    if (oldTx.type === '입고') {
+      data.pltbox = gv('tx-plt');
+      data.tracking = gv('tx-track');
+    } else {
+      data.txType = gv('tx-txtype');
+      data.tracking = gv('tx-track');
+    }
+    await updateDoc(doc(db, 'transactions', editingTxId), data);
+    await recalcBalances(p);
+    const ns = await syncProductStock(p);
+    window.closeMo('mo-tx');
+    toast('내역 수정 완료 · 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
+    await window.reload();
+    _loadIn(); _loadOut(); _loadHist();
+  };
+
+  window.editRm = async function(id) {
+    const rmSnap = await getDoc(doc(db, 'removals', id));
+    if (!rmSnap.exists()) { toast('리무벌 내역을 찾을 수 없습니다.', 'ng'); return; }
+    const r = rmSnap.data();
+    editingRmId = id;
+    document.getElementById('r-mo-title').textContent = '리무벌 오더 수정';
+    sv('r-date', r.date);
+    sv('r-prod', r.product);
+    sv('r-qty', String(r.outQty || 0));
+    sv('r-track', r.tracking || '');
+    sv('r-caqty', String(r.caQty || 0));
+    sv('r-cadate', r.caDate || '');
+    sv('r-note', r.note || '');
+    document.getElementById('mo-rm').classList.remove('hide');
   };
 
   window.editProd = function(id) {
@@ -779,14 +1189,33 @@ try {
     editingProdId = id;
     document.getElementById('p-mo-title').textContent = '상품 수정';
     document.getElementById('p-stock-wrap').style.display = '';
+    document.getElementById('p-del-btn').style.display = '';
     sv('p-name', p.name);
     sv('p-asin', p.asin || '');
     sv('p-fnsku', p.fnsku || '');
     sv('p-upc', p.upc || '');
+    sv('p-boxqty', String(p.boxQty || 0));
     sv('p-stock', String(p.currentStock || 0));
     sv('p-min', String(p.minStock || 0));
     sv('p-note', p.note || '');
     document.getElementById('mo-prod').classList.remove('hide');
+  };
+
+  window.deleteProd = async function() {
+    if (!editingProdId) return;
+    const p = prods.find(function(x) { return x.id === editingProdId; });
+    if (!p) { toast('상품을 찾을 수 없습니다.', 'ng'); return; }
+    const txSnap = await getDocs(collection(db, 'transactions'));
+    const hasTx = txSnap.docs.some(function(d) { return txMatchesProduct(d.data(), p); });
+    if (hasTx) {
+      toast('입출고 내역이 있는 상품은 삭제할 수 없습니다.', 'ng');
+      return;
+    }
+    if (!confirm('"' + p.name + '" 상품을 삭제하시겠습니까?')) return;
+    await deleteDoc(doc(db, 'products', editingProdId));
+    window.closeMo('mo-prod');
+    toast('상품이 삭제되었습니다.', 'ok');
+    await window.reload();
   };
 
   window.showSib = function() {
@@ -810,15 +1239,32 @@ try {
 
   window.openMo = function(id) {
     const t = today();
-    if (id === 'mo-in')   { sv('i-date', t); sv('i-qty', ''); sv('i-plt', ''); sv('i-awb', ''); sv('i-note', ''); fillSels(); }
-    if (id === 'mo-out')  { sv('o-date', t); sv('o-qty', ''); sv('o-track', ''); sv('o-note', ''); document.getElementById('o-sib').style.display = 'none'; fillSels(); }
-    if (id === 'mo-rm')   { sv('r-date', t); sv('r-prod', ''); sv('r-qty', ''); sv('r-track', ''); sv('r-caqty', ''); sv('r-cadate', ''); sv('r-note', ''); }
+    if (id === 'mo-in') {
+      sv('i-date', t); sv('i-qty', ''); sv('i-box', ''); sv('i-plt', ''); sv('i-awb', ''); sv('i-note', '');
+      document.getElementById('i-plt-warn').textContent = '';
+      document.getElementById('i-box-hint').style.display = 'none';
+      fillSels(); onInProdChange();
+    }
+    if (id === 'mo-out') {
+      sv('o-date', t); sv('o-qty', ''); sv('o-box', ''); sv('o-plt', ''); sv('o-track', ''); sv('o-note', '');
+      document.getElementById('o-plt-warn').textContent = '';
+      document.getElementById('o-box-hint').style.display = 'none';
+      document.getElementById('o-sib').style.display = 'none';
+      fillSels(); onOutProdChange();
+    }
+    if (id === 'mo-rm') {
+      editingRmId = null;
+      document.getElementById('r-mo-title').textContent = '리무벌 오더 등록';
+      sv('r-date', t); sv('r-prod', ''); sv('r-qty', ''); sv('r-track', '');
+      sv('r-caqty', ''); sv('r-cadate', ''); sv('r-note', '');
+    }
     if (id === 'mo-prod') {
       editingProdId = null;
       document.getElementById('p-mo-title').textContent = '상품 등록';
       document.getElementById('p-stock-wrap').style.display = 'none';
+      document.getElementById('p-del-btn').style.display = 'none';
       sv('p-name', ''); sv('p-asin', ''); sv('p-fnsku', ''); sv('p-upc', '');
-      sv('p-min', '500'); sv('p-note', ''); sv('p-stock', '0');
+      sv('p-boxqty', '0'); sv('p-min', '500'); sv('p-note', ''); sv('p-stock', '0');
     }
     document.getElementById(id).classList.remove('hide');
   };
