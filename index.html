@@ -27,7 +27,7 @@
 
   ※ 데이터 모델
     products/{id}      : name, asin, fnsku, upc, boxQty, minStock, currentStock, note, createdAt
-    transactions/{id}  : date, type(입고|출고), product, productId, qty, balance, txType, pltbox, tracking, note, attachment?, removalId?, createdAt
+    transactions/{id}  : date, type(입고|출고), product, productId, qty, balance, txType, pltbox, tracking, note, fileUrl?, fileName?, removalId?, createdAt
     removals/{id}      : date, product, outQty, tracking, caQty, caDate, note, inboundTxId?, createdAt
     _meta/seeded       : seed 중복방지 플래그 (삭제하면 재적재됨)
 
@@ -323,7 +323,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-hist"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-hist-bar">
@@ -439,11 +439,9 @@ textarea{resize:vertical;min-height:72px}
         </select>
       </div>
       <div class="fg s2"><label>Tracking / Shipment ID</label><input id="o-track" placeholder="FBA Shipment ID 또는 Tracking No."></div>
-      <div class="fg s2"><label>FBA 라벨 / 첨부파일</label>
-        <div class="file-wrap">
-          <input type="file" id="o-file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" onchange="onOutFileSelect()">
-          <span class="file-name" id="o-file-name">선택된 파일 없음</span>
-        </div>
+      <div class="fg s2"><label>첨부파일 (FBA 라벨 PDF/ZIP)</label>
+        <input type="file" id="o-file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" onchange="onOutFileSelect()">
+        <span class="file-name" id="o-file-name">선택된 파일 없음</span>
         <div class="file-hint">PDF 또는 ZIP · 최대 20MB</div>
       </div>
       <div class="fg s2"><label>비고</label><textarea id="o-note"></textarea></div>
@@ -502,7 +500,7 @@ import {
   serverTimestamp, getDoc
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
 import {
-  getStorage, ref, uploadBytes, getDownloadURL, deleteObject
+  getStorage, ref, uploadBytes, getDownloadURL
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-storage.js';
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
@@ -520,6 +518,9 @@ const FB_CFG = {
   messagingSenderId: "701934733796",
   appId: "1:701934733796:web:f33f730ebaf458ccee1ff1"
 };
+
+const CLIENT = 'caregen';
+// Storage 경로: ${CLIENT}/inbound/ | ${CLIENT}/outbound/ | ${CLIENT}/invoice/
 
 // ── Seed Data ────────────────────────────────────────────────
 const SEED_PRODS = [
@@ -567,17 +568,12 @@ function escHtml(s) {
 }
 const OUT_FILE_MAX = 20 * 1024 * 1024;
 const PAGE_SIZE = 50;
-const STORAGE_BUCKETS = [
-  'gs://enoamdwms-carezen.firebasestorage.app',
-  'gs://enoamdwms-carezen.appspot.com'
-];
 
 // ── 전역 변수 ─────────────────────────────────────────────────
 let db;
 let fbApp;
 let auth;
 let storage;
-let activeStorageBucket = null;
 let appStarted = false;
 let prods = [];
 let importRows = [];
@@ -717,8 +713,7 @@ async function startApp() {
 try {
   fbApp = app;
   db = getFirestore(app);
-  storage = getStorage(app, STORAGE_BUCKETS[0]);
-  activeStorageBucket = STORAGE_BUCKETS[0];
+  storage = getStorage(app);
   setFbStatus('Firestore 연결 확인 중...', 'wn');
 
   const metaRef = doc(db, '_meta', 'seeded');
@@ -843,7 +838,7 @@ try {
 
   function storageErrorMsg(e) {
     const map = {
-      'storage/unauthorized': 'Storage 권한 없음 — Rules에서 outbound-attachments write 허용 확인 (deny 규칙보다 위에 배치)',
+      'storage/unauthorized': 'Storage 권한 없음 — Rules에서 ' + CLIENT + '/outbound/ write 허용 확인',
       'storage/unauthenticated': 'Storage 인증 필요 — Rules 확인',
       'storage/canceled': '업로드가 취소되었습니다.',
       'storage/unknown': 'Storage 연결 실패 — Firebase Console에서 Storage 활성화 여부 확인',
@@ -853,53 +848,19 @@ try {
     return (e && e.code && map[e.code]) ? map[e.code] : ((e && e.message) || '알 수 없는 오류');
   }
 
-  function getStorageForBucket(bucket) {
-    return getStorage(fbApp, bucket || activeStorageBucket || STORAGE_BUCKETS[0]);
+  function renderFileLink(r) {
+    const url = r.fileUrl || (r.attachment && r.attachment.url);
+    if (!url) return '—';
+    return '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" class="tx-sm fw5">📎 첨부</a>';
   }
 
-  function renderAttachment(att) {
-    if (!att || !att.url) return '—';
-    const name = escHtml(att.name || '첨부파일');
-    const url = escHtml(att.url);
-    const icon = (att.name || '').toLowerCase().endsWith('.zip') ? '📦' : '📄';
-    return '<a href="' + url + '" target="_blank" rel="noopener" class="tx-sm fw5" title="' + name + '">' + icon + ' ' + name + '</a>';
-  }
-
-  async function uploadOutAttachment(txId, file) {
+  async function uploadOutboundFile(file, date) {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = 'outbound-attachments/' + txId + '/' + Date.now() + '_' + safeName;
-    const contentType = outFileContentType(file);
-    const buckets = activeStorageBucket
-      ? [activeStorageBucket].concat(STORAGE_BUCKETS.filter(function(b) { return b !== activeStorageBucket; }))
-      : STORAGE_BUCKETS.slice();
-    var lastErr = null;
-    for (var i = 0; i < buckets.length; i++) {
-      try {
-        const bucket = buckets[i];
-        const st = getStorage(fbApp, bucket);
-        const storageRef = ref(st, path);
-        await uploadBytes(storageRef, file, { contentType: contentType });
-        const url = await getDownloadURL(storageRef);
-        storage = st;
-        activeStorageBucket = bucket;
-        return { name: file.name, url: url, path: path, contentType: contentType, size: file.size, bucket: bucket };
-      } catch (e) {
-        lastErr = e;
-        console.warn('[Storage upload]', buckets[i], e.code, e.message);
-        if (e.code === 'storage/unauthorized' || e.code === 'storage/unauthenticated') throw e;
-      }
-    }
-    throw lastErr || new Error('Storage 업로드 실패');
-  }
-
-  async function deleteOutAttachment(attachment) {
-    if (!attachment || !attachment.path) return;
-    try {
-      const st = getStorageForBucket(attachment.bucket);
-      await deleteObject(ref(st, attachment.path));
-    } catch (e) {
-      console.warn('첨부파일 삭제 실패:', e.code, e.message);
-    }
+    const path = CLIENT + '/outbound/' + date + '_' + Date.now() + '_' + safeName;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file, { contentType: outFileContentType(file) });
+    const fileUrl = await getDownloadURL(storageRef);
+    return { fileUrl: fileUrl, fileName: file.name };
   }
 
   async function recalcBalances(p) {
@@ -1148,7 +1109,7 @@ try {
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
-        '<td class="ellip">' + renderAttachment(r.attachment) + '</td>' +
+        '<td class="ellip">' + renderFileLink(r) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
         '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
@@ -1181,9 +1142,10 @@ try {
         '<td class="tr mono">' + (r.balance || 0).toLocaleString() + '</td>' +
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
+        '<td class="tc">' + renderFileLink(r) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         '<td><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button></td></tr>';
-    }).join('') || empty(9, '내역 없음');
+    }).join('') || empty(10, '내역 없음');
     updatePgBar('hist', 'hist');
   }
 
@@ -1494,8 +1456,8 @@ try {
     if (file) {
       try {
         toast('첨부파일 업로드 중...', 'br');
-        const attachment = await uploadOutAttachment(txRef.id, file);
-        await updateDoc(txRef, { attachment: attachment });
+        const uploaded = await uploadOutboundFile(file, date);
+        await updateDoc(txRef, { fileUrl: uploaded.fileUrl, fileName: uploaded.fileName });
       } catch (e) {
         console.error('[Storage upload error]', e.code, e.message, e);
         toast('출고는 저장됐으나 첨부파일 업로드 실패: ' + storageErrorMsg(e), 'wn');
@@ -1563,7 +1525,6 @@ try {
     const msg = label + ' 내역을 취소하시겠습니까?\n' +
       tx.product + ' · ' + (tx.qty || 0).toLocaleString() + ' pcs\n※ 재고가 자동 반영됩니다.';
     if (!confirm(msg)) return;
-    if (tx.attachment) await deleteOutAttachment(tx.attachment);
     await deleteDoc(doc(db, 'transactions', id));
     var ns = null;
     if (p) {
