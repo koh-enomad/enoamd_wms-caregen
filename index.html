@@ -27,14 +27,15 @@
 
   ※ 데이터 모델
     products/{id}      : name, asin, fnsku, upc, boxQty, minStock, currentStock, note, createdAt
-    transactions/{id}  : date, type(입고|출고), product, productId, qty, balance, txType, pltbox, tracking, note, fileUrl?, fileName?, removalId?, createdAt
+    transactions/{id}  : date, type(입고|출고), status(requested|completed), product, productId, qty, balance, txType, pltbox, tracking, note, fileUrl?, fileName?, removalId?, createdAt
     removals/{id}      : date, product, outQty, tracking, caQty, caDate, note, inboundTxId?, createdAt
     _meta/seeded       : seed 중복방지 플래그 (삭제하면 재적재됨)
 
   ※ 재고 일관성 규칙
-    - 입고/출고 시 products.currentStock 을 직접 업데이트하고
-      transactions.balance 에 그 시점 잔여재고를 스냅샷으로 기록함.
-    - 따라서 트랜잭션 삭제/수정 시 currentStock 재계산 로직이 반드시 필요 (P1).
+    - status='requested' : 재고·balance 미반영 (balance=null)
+    - status='completed' : 입고/출고 완료 시 products.currentStock 갱신,
+      transactions.balance 에 그 시점 잔여재고 스냅샷 기록
+    - 트랜잭션 삭제/수정 시 completed 건만 currentStock 재계산 (P1).
 ================================================================================
 -->
 <html lang="ko">
@@ -78,7 +79,7 @@ body{font-family:'IBM Plex Sans KR',sans-serif;background:var(--bg);color:var(--
 .ph-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
 .mc{background:var(--sur);border:1px solid var(--bd);border-radius:var(--rl);padding:16px;box-shadow:var(--sh)}
-.mc.a{border-left:3px solid var(--brand)}.mc.ok{border-left:3px solid var(--ok)}.mc.ng{border-left:3px solid var(--ng)}
+.mc.a{border-left:3px solid var(--brand)}.mc.ok{border-left:3px solid var(--ok)}.mc.ng{border-left:3px solid var(--ng)}.mc.wn{border-left:3px solid var(--wn)}
 .mc-lbl{font-size:11px;color:var(--tm);font-weight:500;margin-bottom:6px}
 .mc-val{font-size:24px;font-weight:600;line-height:1;font-family:'IBM Plex Mono',monospace;margin-bottom:4px}
 .mc-unit{font-size:11px;color:var(--th)}
@@ -189,8 +190,8 @@ textarea{resize:vertical;min-height:72px}
          <button class="nb" data-page="report"><span class="ni">📈</span>리포트</button>
          - 월별/상품별 입출고 집계, 재고회전율, 차트(chart.js CDN) -->
     <div class="side-lbl">바로가기</div>
-    <button class="nb" onclick="openMo('mo-in')"><span class="ni">+</span>입고 등록</button>
-    <button class="nb" onclick="openMo('mo-out')"><span class="ni">↑</span>출고 등록</button>
+    <button class="nb" onclick="openMo('mo-in')"><span class="ni">+</span>입고 요청</button>
+    <button class="nb" onclick="openMo('mo-out')"><span class="ni">↑</span>출고 요청</button>
   </aside>
 
   <main class="main">
@@ -204,6 +205,8 @@ textarea{resize:vertical;min-height:72px}
       <div class="metrics">
         <div class="mc a"><div class="mc-lbl">총 SKU</div><div class="mc-val" id="m-sku">—</div><div class="mc-unit">등록 상품</div></div>
         <div class="mc"><div class="mc-lbl">총 재고</div><div class="mc-val" id="m-tot">—</div><div class="mc-unit">pcs</div></div>
+        <div class="mc wn"><div class="mc-lbl">입고 예정</div><div class="mc-val" id="m-pend-in">—</div><div class="mc-unit">건</div></div>
+        <div class="mc wn"><div class="mc-lbl">출고 예정</div><div class="mc-val" id="m-pend-out">—</div><div class="mc-unit">건</div></div>
         <div class="mc ok"><div class="mc-lbl">이번 달 입고</div><div class="mc-val" id="m-in">—</div><div class="mc-unit">pcs</div></div>
         <div class="mc ng"><div class="mc-lbl">이번 달 출고</div><div class="mc-val" id="m-out">—</div><div class="mc-unit">pcs</div></div>
       </div>
@@ -212,8 +215,8 @@ textarea{resize:vertical;min-height:72px}
           <span class="card-title">현재 재고</span>
           <div class="btn-row">
             <button class="btn btn-sm" onclick="reload()">🔄 새로고침</button>
-            <button class="btn btn-sm btn-p" onclick="openMo('mo-in')">+ 입고</button>
-            <button class="btn btn-sm btn-ng" onclick="openMo('mo-out')">↑ 출고</button>
+            <button class="btn btn-sm btn-p" onclick="openMo('mo-in')">+ 입고 요청</button>
+            <button class="btn btn-sm btn-ng" onclick="openMo('mo-out')">↑ 출고 요청</button>
           </div>
         </div>
         <div class="tw"><table>
@@ -251,12 +254,19 @@ textarea{resize:vertical;min-height:72px}
     <!-- INBOUND -->
     <div class="page" id="pg-inbound">
       <div class="ph"><div class="ph-row">
-        <div><div class="ph-title">입고 처리</div><div class="ph-sub">창고 입고 등록</div></div>
-        <button class="btn btn-p" onclick="openMo('mo-in')">+ 입고 등록</button>
+        <div><div class="ph-title">입고 처리</div><div class="ph-sub">요청 등록 → 완료 처리 시 재고 반영</div></div>
+        <button class="btn btn-p" onclick="openMo('mo-in')">+ 입고 요청</button>
       </div></div>
       <div class="card">
+        <div class="card-hd"><span class="card-title">요청 대기</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
+          <tbody id="tb-in-pending"></tbody>
+        </table></div>
+      </div>
+      <div class="card">
         <div class="card-hd">
-          <span class="card-title">입고 내역</span>
+          <span class="card-title">완료 내역</span>
           <div class="fr">
             <input type="date" id="f-in-s" style="width:140px;padding:6px 10px;font-size:12px">
             <span class="tx-h tx-sm">~</span>
@@ -265,7 +275,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-in"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-in-bar">
@@ -279,12 +289,19 @@ textarea{resize:vertical;min-height:72px}
     <!-- OUTBOUND -->
     <div class="page" id="pg-outbound">
       <div class="ph"><div class="ph-row">
-        <div><div class="ph-title">출고 처리</div><div class="ph-sub">FBA · B2C · B2B 출고</div></div>
-        <button class="btn btn-ng" onclick="openMo('mo-out')">↑ 출고 등록</button>
+        <div><div class="ph-title">출고 처리</div><div class="ph-sub">FBA · B2C · B2B · 요청 → 완료 시 재고 차감</div></div>
+        <button class="btn btn-ng" onclick="openMo('mo-out')">↑ 출고 요청</button>
       </div></div>
       <div class="card">
+        <div class="card-hd"><span class="card-title">요청 대기</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
+          <tbody id="tb-out-pending"></tbody>
+        </table></div>
+      </div>
+      <div class="card">
         <div class="card-hd">
-          <span class="card-title">출고 내역</span>
+          <span class="card-title">완료 내역</span>
           <div class="fr">
             <input type="date" id="f-out-s" style="width:140px;padding:6px 10px;font-size:12px">
             <span class="tx-h tx-sm">~</span>
@@ -297,7 +314,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-out"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-out-bar">
@@ -323,7 +340,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>구분</th><th>상태</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-hist"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-hist-bar">
@@ -405,7 +422,7 @@ textarea{resize:vertical;min-height:72px}
 
 <div class="mo hide" id="mo-in">
   <div class="mo-box">
-    <div class="mo-hd"><span class="mo-title">입고 등록</span><button class="mo-x" onclick="closeMo('mo-in')">×</button></div>
+    <div class="mo-hd"><span class="mo-title">입고 요청</span><button class="mo-x" onclick="closeMo('mo-in')">×</button></div>
     <div class="mo-bd"><div class="g2">
       <div class="fg"><label>날짜 *</label><input type="date" id="i-date"></div>
       <div class="fg"><label>상품 *</label><select id="i-prod" onchange="onInProdChange()"></select></div>
@@ -417,13 +434,13 @@ textarea{resize:vertical;min-height:72px}
       <div class="fg s2"><label>AWB / 참조번호</label><input id="i-awb" placeholder="MAWB 또는 HAWB"></div>
       <div class="fg s2"><label>비고</label><textarea id="i-note"></textarea></div>
     </div></div>
-    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-in')">취소</button><button class="btn btn-p" onclick="saveIn()">입고 저장</button></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-in')">취소</button><button class="btn btn-p" onclick="saveIn()">입고 요청</button></div>
   </div>
 </div>
 
 <div class="mo hide" id="mo-out">
   <div class="mo-box">
-    <div class="mo-hd"><span class="mo-title">출고 등록</span><button class="mo-x" onclick="closeMo('mo-out')">×</button></div>
+    <div class="mo-hd"><span class="mo-title">출고 요청</span><button class="mo-x" onclick="closeMo('mo-out')">×</button></div>
     <div class="mo-bd"><div class="g2">
       <div class="fg"><label>날짜 *</label><input type="date" id="o-date"></div>
       <div class="fg"><label>상품 *</label><select id="o-prod" onchange="onOutProdChange()"></select></div>
@@ -448,7 +465,7 @@ textarea{resize:vertical;min-height:72px}
     </div>
     <div class="sib" id="o-sib" style="display:none">현재 재고: <strong id="o-cur">—</strong> pcs</div>
     </div>
-    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-out')">취소</button><button class="btn btn-ng" onclick="saveOut()">출고 저장</button></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-out')">취소</button><button class="btn btn-ng" onclick="saveOut()">출고 요청</button></div>
   </div>
 </div>
 
@@ -529,12 +546,12 @@ const SEED_PRODS = [
   { id:'dhl-ser',   name:'Dermaheal Vitalizing Serum', asin:'', fnsku:'', upc:'', minStock:10, currentStock:0, note:'' },
 ];
 const SEED_TXS = [
-  { date:'2026-02-02', type:'입고', product:'Korglutide 3g * 30 pcs', qty:8992, balance:8992, txType:'입고', pltbox:'6PLT (72BOX)', tracking:'', note:'1BOX = 126개 / #48 박스만 46개' },
-  { date:'2026-02-02', type:'출고', product:'Korglutide 3g * 30 pcs', qty:1512, balance:7480, txType:'FBA', pltbox:'1PLT (12BOX)', tracking:'', note:'도착 후 1PLT(12BOX) 출고' },
-  { date:'2026-02-05', type:'출고', product:'Korglutide 3g * 30 pcs', qty:3024, balance:4456, txType:'FBA', pltbox:'2PLT (24BOX)', tracking:'', note:'2PLT (24BOX) 출고' },
-  { date:'2026-02-06', type:'출고', product:'Korglutide 3g * 30 pcs', qty:378,  balance:4078, txType:'FBA', pltbox:'3BOX', tracking:'', note:'3BOX 출고' },
-  { date:'2026-02-12', type:'출고', product:'Korglutide 3g * 30 pcs', qty:19,   balance:4059, txType:'B2C', pltbox:'', tracking:'', note:'한국향 B2C 개별 발송 18건 / ACI 통해 픽업 진행' },
-  { date:'2026-06-04', type:'출고', product:'Korglutide 3g * 30 pcs', qty:1260, balance:2799, txType:'FBA', pltbox:'10BOX', tracking:'', note:'10BOX 아마존 FBA 입고' },
+  { date:'2026-02-02', type:'입고', status:'completed', product:'Korglutide 3g * 30 pcs', qty:8992, balance:8992, txType:'입고', pltbox:'6PLT (72BOX)', tracking:'', note:'1BOX = 126개 / #48 박스만 46개' },
+  { date:'2026-02-02', type:'출고', status:'completed', product:'Korglutide 3g * 30 pcs', qty:1512, balance:7480, txType:'FBA', pltbox:'1PLT (12BOX)', tracking:'', note:'도착 후 1PLT(12BOX) 출고' },
+  { date:'2026-02-05', type:'출고', status:'completed', product:'Korglutide 3g * 30 pcs', qty:3024, balance:4456, txType:'FBA', pltbox:'2PLT (24BOX)', tracking:'', note:'2PLT (24BOX) 출고' },
+  { date:'2026-02-06', type:'출고', status:'completed', product:'Korglutide 3g * 30 pcs', qty:378,  balance:4078, txType:'FBA', pltbox:'3BOX', tracking:'', note:'3BOX 출고' },
+  { date:'2026-02-12', type:'출고', status:'completed', product:'Korglutide 3g * 30 pcs', qty:19,   balance:4059, txType:'B2C', pltbox:'', tracking:'', note:'한국향 B2C 개별 발송 18건 / ACI 통해 픽업 진행' },
+  { date:'2026-06-04', type:'출고', status:'completed', product:'Korglutide 3g * 30 pcs', qty:1260, balance:2799, txType:'FBA', pltbox:'10BOX', tracking:'', note:'10BOX 아마존 FBA 입고' },
 ];
 const SEED_RMS = [
   { date:'2026-02-07', product:'DR.CYJ Intensive Hair Mask', outQty:2, tracking:'9300189685000682633906 (USPS_FIRST_CLASS_PARCEL)', caQty:2, caDate:'2026-02-18', note:'' },
@@ -616,6 +633,7 @@ window.saveIn      = notReady;
 window.saveOut     = notReady;
 window.saveRm      = notReady;
 window.delTx       = notReady;
+window.completeTx  = notReady;
 window.delRm       = notReady;
 window.editProd    = notReady;
 window.deleteProd  = notReady;
@@ -740,9 +758,24 @@ try {
     for (const r of SEED_RMS) {
       await addDoc(collection(db, 'removals'), { ...r, createdAt: serverTimestamp() });
     }
-    await setDoc(metaRef, { seededAt: serverTimestamp(), v: 1 });
+    await setDoc(metaRef, { seededAt: serverTimestamp(), v: 2 });
     toast('케어젠 기초 데이터 적재 완료', 'ok');
   }
+
+  async function migrateTxStatus() {
+    const snap = await getDocs(collection(db, 'transactions'));
+    var n = 0;
+    for (var i = 0; i < snap.docs.length; i++) {
+      const d = snap.docs[i];
+      if (!d.data().status) {
+        await updateDoc(d.ref, { status: 'completed' });
+        n++;
+      }
+    }
+    if (n) console.log('[migrateTxStatus]', n, '건 → completed');
+  }
+
+  await migrateTxStatus();
 
   // ── 초기화 완료 후 실제 함수 등록 ────────────────────────────
 
@@ -773,6 +806,35 @@ try {
     document.getElementById('tb-prods').innerHTML = rows || empty(7, '등록된 상품 없음');
   }
 
+  function txEffectiveStatus(t) {
+    return t.status || 'completed';
+  }
+
+  function isTxCompleted(t) {
+    return txEffectiveStatus(t) === 'completed';
+  }
+
+  function isTxRequested(t) {
+    return txEffectiveStatus(t) === 'requested';
+  }
+
+  function renderTxStatus(t) {
+    if (isTxRequested(t)) return '<span class="badge b-wn">대기</span>';
+    return '<span class="badge b-in">완료</span>';
+  }
+
+  function renderBalance(r) {
+    if (isTxRequested(r)) return '—';
+    return (r.balance != null ? r.balance : 0).toLocaleString();
+  }
+
+  function txPendingActions(r) {
+    return '<td class="btn-row">' +
+      '<button class="btn btn-sm btn-ok" onclick="completeTx(\'' + r.id + '\')">완료</button>' +
+      '<button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
+      '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td>';
+  }
+
   function txMatchesProduct(t, p) {
     if (t.productId && t.productId === p.id) return true;
     return t.product === p.name;
@@ -792,6 +854,7 @@ try {
     snap.docs.forEach(function(d) {
       const t = d.data();
       if (!txMatchesProduct(t, p)) return;
+      if (!isTxCompleted(t)) return;
       if (t.type === '입고') stock += (t.qty || 0);
       else if (t.type === '출고') stock -= (t.qty || 0);
     });
@@ -870,6 +933,10 @@ try {
     var balance = 0;
     for (var i = 0; i < txs.length; i++) {
       const t = txs[i];
+      if (!isTxCompleted(t)) {
+        await updateDoc(doc(db, 'transactions', t.id), { balance: null });
+        continue;
+      }
       if (t.type === '입고') balance += (t.qty || 0);
       else if (t.type === '출고') balance -= (t.qty || 0);
       await updateDoc(doc(db, 'transactions', t.id), { balance: balance });
@@ -950,6 +1017,7 @@ try {
     const txData = {
       date: caDate || today(),
       type: '입고',
+      status: 'completed',
       product: productName,
       productId: p.id,
       qty: caQty,
@@ -964,7 +1032,7 @@ try {
       await updateDoc(doc(db, 'transactions', txId), txData);
     } else {
       const txRef = await addDoc(collection(db, 'transactions'), Object.assign({}, txData, {
-        balance: 0,
+        balance: null,
         removalId: rmRef.id,
         createdAt: serverTimestamp()
       }));
@@ -1005,12 +1073,18 @@ try {
     const now = new Date();
     const ms = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const snap = await getDocs(query(collection(db, 'transactions'), orderBy('date', 'desc'), limit(20)));
+    const allSnap = await getDocs(collection(db, 'transactions'));
+    const allTxs = allSnap.docs.map(function(d) { return d.data(); });
     const txs = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
     const tot  = prods.reduce(function(s, p) { return s + (p.currentStock || 0); }, 0);
-    const mIn  = txs.filter(function(t) { return t.type === '입고' && t.date >= ms; }).reduce(function(s, t) { return s + t.qty; }, 0);
-    const mOut = txs.filter(function(t) { return t.type === '출고' && t.date >= ms; }).reduce(function(s, t) { return s + t.qty; }, 0);
+    const pendIn  = allTxs.filter(function(t) { return t.type === '입고' && isTxRequested(t); }).length;
+    const pendOut = allTxs.filter(function(t) { return t.type === '출고' && isTxRequested(t); }).length;
+    const mIn  = allTxs.filter(function(t) { return t.type === '입고' && isTxCompleted(t) && t.date >= ms; }).reduce(function(s, t) { return s + t.qty; }, 0);
+    const mOut = allTxs.filter(function(t) { return t.type === '출고' && isTxCompleted(t) && t.date >= ms; }).reduce(function(s, t) { return s + t.qty; }, 0);
     document.getElementById('m-sku').textContent  = prods.length;
     document.getElementById('m-tot').textContent  = tot.toLocaleString();
+    document.getElementById('m-pend-in').textContent  = pendIn.toLocaleString();
+    document.getElementById('m-pend-out').textContent = pendOut.toLocaleString();
     document.getElementById('m-in').textContent   = mIn.toLocaleString();
     document.getElementById('m-out').textContent  = mOut.toLocaleString();
     document.getElementById('tb-stock').innerHTML = prods.map(function(p) {
@@ -1023,12 +1097,12 @@ try {
         '</tr>';
     }).join('') || empty(4, '상품 없음');
     document.getElementById('tb-recent').innerHTML = txs.map(function(t) {
-      return '<tr>' +
+      return '<tr' + (isTxRequested(t) ? ' class="ls"' : '') + '>' +
         '<td class="tx-sm">' + t.date + '</td>' +
-        '<td><span class="badge ' + (t.type === '입고' ? 'b-in' : 'b-out') + '">' + t.type + '</span></td>' +
+        '<td><span class="badge ' + (t.type === '입고' ? 'b-in' : 'b-out') + '">' + t.type + '</span> ' + renderTxStatus(t) + '</td>' +
         '<td>' + t.product + '</td>' +
         '<td class="tr mono">' + t.qty.toLocaleString() + '</td>' +
-        '<td class="tr mono">' + (t.balance || 0).toLocaleString() + '</td>' +
+        '<td class="tr mono">' + renderBalance(t) + '</td>' +
         '<td class="tx-sm tx-m ellip">' + (t.note || '') + '</td>' +
         '</tr>';
     }).join('') || empty(6, '내역 없음');
@@ -1060,12 +1134,54 @@ try {
     return snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
   }
 
+  async function _loadInPending() {
+    const constraints = [where('type', '==', '입고'), where('status', '==', 'requested'), orderBy('date', 'desc')];
+    let rows;
+    try {
+      const snap = await getDocs(query(collection(db, 'transactions'), ...constraints));
+      rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    } catch (err) {
+      toast('입고 대기 목록 로드 실패: ' + err.message, 'ng');
+      rows = [];
+    }
+    document.getElementById('tb-in-pending').innerHTML = rows.map(function(r) {
+      return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
+        '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
+        '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
+        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
+        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
+        txPendingActions(r) + '</tr>';
+    }).join('') || empty(7, '대기 중인 입고 요청 없음');
+  }
+
+  async function _loadOutPending() {
+    const constraints = [where('type', '==', '출고'), where('status', '==', 'requested'), orderBy('date', 'desc')];
+    let rows;
+    try {
+      const snap = await getDocs(query(collection(db, 'transactions'), ...constraints));
+      rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    } catch (err) {
+      toast('출고 대기 목록 로드 실패: ' + err.message, 'ng');
+      rows = [];
+    }
+    document.getElementById('tb-out-pending').innerHTML = rows.map(function(r) {
+      return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
+        '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
+        '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
+        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
+        '<td class="ellip">' + renderFileLink(r) + '</td>' +
+        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
+        txPendingActions(r) + '</tr>';
+    }).join('') || empty(8, '대기 중인 출고 요청 없음');
+  }
+
   async function _loadIn(reset) {
     if (reset) resetPg('in');
+    await _loadInPending();
     const st = pgState.in;
     const s = document.getElementById('f-in-s').value;
     const e = document.getElementById('f-in-e').value;
-    const constraints = [where('type', '==', '입고'), orderBy('date', 'desc')];
+    const constraints = [where('type', '==', '입고'), where('status', '==', 'completed'), orderBy('date', 'desc')];
     if (s) constraints.push(where('date', '>=', s));
     if (e) constraints.push(where('date', '<=', e));
     let rows;
@@ -1078,22 +1194,24 @@ try {
     document.getElementById('tb-in').innerHTML = rows.map(function(r) {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
+        '<td class="tr mono">' + renderBalance(r) + '</td>' +
         '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
         '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
-    }).join('') || empty(7, '입고 내역 없음');
+    }).join('') || empty(8, '완료된 입고 내역 없음');
     updatePgBar('in', 'in');
   }
 
   async function _loadOut(reset) {
     if (reset) resetPg('out');
+    await _loadOutPending();
     const st = pgState.out;
     const s = document.getElementById('f-out-s').value;
     const e = document.getElementById('f-out-e').value;
     const t = document.getElementById('f-out-t').value;
-    const constraints = [where('type', '==', '출고'), orderBy('date', 'desc')];
+    const constraints = [where('type', '==', '출고'), where('status', '==', 'completed'), orderBy('date', 'desc')];
     if (s) constraints.push(where('date', '>=', s));
     if (e) constraints.push(where('date', '<=', e));
     if (t) constraints.push(where('txType', '==', t));
@@ -1108,12 +1226,13 @@ try {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
+        '<td class="tr mono">' + renderBalance(r) + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="ellip">' + renderFileLink(r) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
         '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
-    }).join('') || empty(8, '출고 내역 없음');
+    }).join('') || empty(9, '완료된 출고 내역 없음');
     updatePgBar('out', 'out');
   }
 
@@ -1135,17 +1254,22 @@ try {
     rows = sortTxChronological(rows);
     window._hist = rows;
     document.getElementById('tb-hist').innerHTML = rows.map(function(r) {
-      return '<tr><td class="tx-sm">' + r.date + '</td>' +
+      return '<tr' + (isTxRequested(r) ? ' class="ls"' : '') + '><td class="tx-sm">' + r.date + '</td>' +
         '<td><span class="badge ' + (r.type === '입고' ? 'b-in' : 'b-out') + '">' + r.type + '</span></td>' +
+        '<td>' + renderTxStatus(r) + '</td>' +
         '<td>' + r.product + '</td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
-        '<td class="tr mono">' + (r.balance || 0).toLocaleString() + '</td>' +
+        '<td class="tr mono">' + renderBalance(r) + '</td>' +
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tc">' + renderFileLink(r) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        '<td><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button></td></tr>';
-    }).join('') || empty(10, '내역 없음');
+        '<td class="btn-row">' +
+        (isTxRequested(r) ? '<button class="btn btn-sm btn-ok" onclick="completeTx(\'' + r.id + '\')">완료</button>' : '') +
+        '<button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
+        (isTxRequested(r) ? '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button>' : '') +
+        '</td></tr>';
+    }).join('') || empty(11, '내역 없음');
     updatePgBar('hist', 'hist');
   }
 
@@ -1283,7 +1407,7 @@ try {
       const p = prods.find(function(x) { return x.name === r.product; });
       if (!p) continue;
       await addDoc(collection(db, 'transactions'), {
-        date: r.date, type: r.type, product: r.product, productId: p.id,
+        date: r.date, type: r.type, status: 'completed', product: r.product, productId: p.id,
         qty: r.qty, balance: 0, txType: r.type === '입고' ? '입고' : 'BULK',
         pltbox: '', tracking: '', note: r.note, createdAt: serverTimestamp()
       });
@@ -1402,14 +1526,13 @@ try {
     const qty = resolveQty(p, 'i-box', 'i-qty', 'i-plt');
     if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
     await addDoc(collection(db, 'transactions'), {
-      date, type: '입고', product: pn, productId: p.id, qty, balance: 0, txType: '입고',
+      date, type: '입고', status: 'requested', product: pn, productId: p.id, qty, balance: null, txType: '입고',
       pltbox: gv('i-plt'), tracking: gv('i-awb'), note: gv('i-note'), createdAt: serverTimestamp()
     });
-    await recalcBalances(p);
-    const ns = await syncProductStock(p);
     window.closeMo('mo-in');
-    toast('입고 완료 · ' + pn + ' +' + qty.toLocaleString() + ' → 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
+    toast('입고 요청 등록 · ' + pn + ' +' + qty.toLocaleString() + ' pcs (완료 처리 시 재고 반영)', 'ok');
     await window.reload();
+    _loadIn(false);
   };
 
   window.onOutFileSelect = function() {
@@ -1442,7 +1565,6 @@ try {
     }
     const qty = resolveQty(p, 'o-box', 'o-qty', 'o-plt');
     if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
-    if (qty > (p.currentStock || 0)) { toast('재고 부족 — 현재 ' + (p.currentStock || 0).toLocaleString() + ' pcs', 'ng'); return; }
     const fileInput = document.getElementById('o-file');
     const file = fileInput.files && fileInput.files[0];
     if (file) {
@@ -1450,7 +1572,7 @@ try {
       if (!check.ok) { toast(check.msg, 'ng'); return; }
     }
     const txRef = await addDoc(collection(db, 'transactions'), {
-      date, type: '출고', product: pn, productId: p.id, qty, balance: 0, txType,
+      date, type: '출고', status: 'requested', product: pn, productId: p.id, qty, balance: null, txType,
       pltbox: gv('o-plt'), tracking: gv('o-track'), note: gv('o-note'), createdAt: serverTimestamp()
     });
     if (file) {
@@ -1463,11 +1585,10 @@ try {
         toast('출고는 저장됐으나 첨부파일 업로드 실패: ' + storageErrorMsg(e), 'wn');
       }
     }
-    await recalcBalances(p);
-    const ns = await syncProductStock(p);
     window.closeMo('mo-out');
-    toast('출고 완료 · ' + pn + ' -' + qty.toLocaleString() + ' → 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
+    toast('출고 요청 등록 · ' + pn + ' -' + qty.toLocaleString() + ' pcs (완료 처리 시 재고 차감)', 'ok');
     await window.reload();
+    _loadOut(false);
     } catch (e) {
       console.error('[saveOut]', e);
       toast('출고 저장 실패: ' + (e.code ? storageErrorMsg(e) : e.message), 'ng');
@@ -1516,18 +1637,43 @@ try {
     if (caQty > 0) await window.reload();
   };
 
+  window.completeTx = async function(id) {
+    const txSnap = await getDoc(doc(db, 'transactions', id));
+    if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
+    const tx = Object.assign({ id: id }, txSnap.data());
+    if (!isTxRequested(tx)) { toast('이미 완료된 내역입니다.', 'wn'); return; }
+    const p = findProdForTx(tx);
+    if (!p) { toast('연결된 상품을 찾을 수 없습니다.', 'ng'); return; }
+    const label = tx.type === '입고' ? '입고' : '출고';
+    if (tx.type === '출고' && (tx.qty || 0) > (p.currentStock || 0)) {
+      toast('재고 부족 — 현재 ' + (p.currentStock || 0).toLocaleString() + ' pcs', 'ng');
+      return;
+    }
+    const msg = label + ' 완료 처리하시겠습니까?\n' +
+      tx.product + ' · ' + (tx.qty || 0).toLocaleString() + ' pcs\n※ 재고에 반영됩니다.';
+    if (!confirm(msg)) return;
+    await updateDoc(doc(db, 'transactions', id), { status: 'completed', updatedAt: serverTimestamp() });
+    await recalcBalances(p);
+    const ns = await syncProductStock(p);
+    toast(label + ' 완료 · 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
+    await window.reload();
+    _loadIn(false); _loadOut(false); _loadHist(false);
+  };
+
   window.delTx = async function(id) {
     const txSnap = await getDoc(doc(db, 'transactions', id));
     if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
     const tx = txSnap.data();
     const p = findProdForTx(tx);
     const label = tx.type === '입고' ? '입고' : '출고';
-    const msg = label + ' 내역을 취소하시겠습니까?\n' +
-      tx.product + ' · ' + (tx.qty || 0).toLocaleString() + ' pcs\n※ 재고가 자동 반영됩니다.';
+    const wasCompleted = isTxCompleted(tx);
+    const msg = label + (isTxRequested(tx) ? ' 요청을 취소' : ' 내역을 취소') + '하시겠습니까?\n' +
+      tx.product + ' · ' + (tx.qty || 0).toLocaleString() + ' pcs' +
+      (wasCompleted ? '\n※ 재고가 자동 반영됩니다.' : '');
     if (!confirm(msg)) return;
     await deleteDoc(doc(db, 'transactions', id));
     var ns = null;
-    if (p) {
+    if (p && wasCompleted) {
       ns = await syncProductStock(p);
       await recalcBalances(p);
     }
@@ -1558,7 +1704,8 @@ try {
       return;
     }
     editingTxId = id;
-    document.getElementById('tx-mo-title').textContent = tx.type + ' 내역 수정';
+    document.getElementById('tx-mo-title').textContent =
+      tx.type + ' 내역 수정' + (isTxRequested(tx) ? ' (대기)' : '');
     sv('tx-prod', tx.product);
     sv('tx-type', tx.type);
     sv('tx-date', tx.date);
@@ -1582,7 +1729,8 @@ try {
     if (!date || !qty) { toast('날짜·수량 필수 입력', 'ng'); return; }
     const p = findProdForTx(oldTx);
     if (!p) { toast('연결된 상품을 찾을 수 없습니다.', 'ng'); return; }
-    if (oldTx.type === '출고') {
+    const wasCompleted = isTxCompleted(oldTx);
+    if (wasCompleted && oldTx.type === '출고') {
       const available = (p.currentStock || 0) + (oldTx.qty || 0);
       if (qty > available) {
         toast('재고 부족 — 최대 ' + available.toLocaleString() + ' pcs', 'ng');
@@ -1600,10 +1748,13 @@ try {
       data.tracking = gv('tx-track');
     }
     await updateDoc(doc(db, 'transactions', editingTxId), data);
-    await recalcBalances(p);
-    const ns = await syncProductStock(p);
+    var ns = null;
+    if (wasCompleted) {
+      await recalcBalances(p);
+      ns = await syncProductStock(p);
+    }
     window.closeMo('mo-tx');
-    toast('내역 수정 완료 · 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
+    toast('내역 수정 완료' + (ns !== null ? ' · 잔여 ' + ns.toLocaleString() + ' pcs' : ''), 'ok');
     await window.reload();
     _loadIn(false); _loadOut(false); _loadHist(false);
   };
@@ -1670,9 +1821,9 @@ try {
     toast('전체 내역 로드 중...', 'br');
     const snap = await getDocs(collection(db, 'transactions'));
     const rows = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); }));
-    const h = ['날짜', '구분', '상품명', '수량', '잔여재고', '유형', 'Tracking', '비고'];
+    const h = ['날짜', '구분', '상태', '상품명', '수량', '잔여재고', '유형', 'Tracking', '비고'];
     const csv = [h].concat(rows.map(function(r) {
-      return [r.date, r.type, r.product, r.qty, r.balance || '', r.txType || '', r.tracking || '', r.note || ''];
+      return [r.date, r.type, txEffectiveStatus(r), r.product, r.qty, isTxRequested(r) ? '' : (r.balance != null ? r.balance : ''), r.txType || '', r.tracking || '', r.note || ''];
     })).map(function(r) { return r.join(','); }).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
