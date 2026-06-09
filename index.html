@@ -27,7 +27,7 @@
 
   ※ 데이터 모델
     products/{id}      : name, asin, fnsku, upc, boxQty, minStock, currentStock, note, createdAt
-    transactions/{id}  : date, type(입고|출고), product, productId, qty, balance, txType, pltbox, tracking, note, removalId?, createdAt
+    transactions/{id}  : date, type(입고|출고), product, productId, qty, balance, txType, pltbox, tracking, note, attachment?, removalId?, createdAt
     removals/{id}      : date, product, outQty, tracking, caQty, caDate, note, inboundTxId?, createdAt
     _meta/seeded       : seed 중복방지 플래그 (삭제하면 재적재됨)
 
@@ -121,6 +121,10 @@ textarea{resize:vertical;min-height:72px}
 .mo-bd{padding:24px}.mo-ft{padding:16px 24px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;gap:10px}
 .sp{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:13px;font-weight:600;font-family:'IBM Plex Mono',monospace}
 .sib{margin-top:12px;padding:10px 14px;background:var(--sur2);border-radius:var(--r);font-size:12px}
+.file-wrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.file-wrap input[type=file]{font-size:12px;max-width:100%}
+.file-name{font-size:12px;color:var(--tm)}
+.file-hint{font-size:11px;color:var(--th);margin-top:2px}
 #toast{position:fixed;bottom:24px;right:24px;z-index:300;display:flex;flex-direction:column;gap:8px}
 .toast{padding:11px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,.15);animation:tin .2s ease;max-width:340px}
 .t-ok{background:var(--ok);color:#fff}.t-ng{background:var(--ng);color:#fff}.t-br{background:var(--brand);color:#fff}
@@ -269,7 +273,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-out"></tbody>
         </table></div>
       </div>
@@ -372,6 +376,13 @@ textarea{resize:vertical;min-height:72px}
         </select>
       </div>
       <div class="fg s2"><label>Tracking / Shipment ID</label><input id="o-track" placeholder="FBA Shipment ID 또는 Tracking No."></div>
+      <div class="fg s2"><label>FBA 라벨 / 첨부파일</label>
+        <div class="file-wrap">
+          <input type="file" id="o-file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" onchange="onOutFileSelect()">
+          <span class="file-name" id="o-file-name">선택된 파일 없음</span>
+        </div>
+        <div class="file-hint">PDF 또는 ZIP · 최대 20MB</div>
+      </div>
       <div class="fg s2"><label>비고</label><textarea id="o-note"></textarea></div>
     </div>
     <div class="sib" id="o-sib" style="display:none">현재 재고: <strong id="o-cur">—</strong> pcs</div>
@@ -427,9 +438,14 @@ import {
   updateDoc, deleteDoc, query, orderBy, where, limit,
   serverTimestamp, getDoc
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
+import {
+  getStorage, ref, uploadBytes, getDownloadURL, deleteObject
+} from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-storage.js';
 
 // ── Config ──────────────────────────────────────────────────
 // TODO[P3]: 로그인/인증 (Firebase Auth)
+//  - Firestore Rules 뿐 아니라 Storage Rules 도 잠글 것
+//  - outbound-attachments/ 경로: 현재 allow read,write: if true 필요 (Console → Storage → Rules)
 //  - 현재 Firestore Rules 가 'allow read,write: if true' → URL 아는 사람 누구나 수정 가능
 //  - import getAuth, signInWithEmailAndPassword 추가 → 로그인 화면 표시
 //  - 인증 후에만 db 접근하도록 가드, Firestore Rules 를 'if request.auth != null' 로 변경
@@ -484,9 +500,14 @@ function setFbStatus(msg, state) {
   document.getElementById('fb-msg').textContent = msg;
   document.getElementById('fb-dot').className = 'dot' + (state ? ' ' + state : '');
 }
+function escHtml(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+}
+const OUT_FILE_MAX = 20 * 1024 * 1024;
 
 // ── 전역 변수 ─────────────────────────────────────────────────
 let db;
+let storage;
 let prods = [];
 let editingProdId = null;
 let editingTxId = null;
@@ -532,6 +553,7 @@ window.calcQtyIn   = notReady;
 window.calcQtyOut  = notReady;
 window.onInProdChange = notReady;
 window.onOutProdChange = notReady;
+window.onOutFileSelect  = notReady;
 window.showSib     = notReady;
 
 // ── 모달 오버레이 클릭 닫기 ───────────────────────────────────
@@ -562,6 +584,7 @@ setFbStatus('Firebase 초기화 중...', '');
 try {
   const app = initializeApp(FB_CFG);
   db = getFirestore(app);
+  storage = getStorage(app);
   setFbStatus('Firestore 연결 확인 중...', 'wn');
 
   const metaRef = doc(db, '_meta', 'seeded');
@@ -649,17 +672,64 @@ try {
     return stock;
   }
 
+  function txTypeOrder(type) {
+    return type === '입고' ? 0 : 1;
+  }
+
+  function sortTxChronological(rows) {
+    return rows.sort(function(a, b) {
+      const dc = a.date.localeCompare(b.date);
+      if (dc !== 0) return dc;
+      const to = txTypeOrder(a.type) - txTypeOrder(b.type);
+      if (to !== 0) return to;
+      const as = (a.createdAt && a.createdAt.seconds) || 0;
+      const bs = (b.createdAt && b.createdAt.seconds) || 0;
+      return as - bs;
+    });
+  }
+
+  function validateOutFile(file) {
+    if (!file) return { ok: true };
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (ext !== 'pdf' && ext !== 'zip') {
+      return { ok: false, msg: 'PDF 또는 ZIP 파일만 업로드할 수 있습니다.' };
+    }
+    if (file.size > OUT_FILE_MAX) {
+      return { ok: false, msg: '파일 크기는 20MB 이하여야 합니다.' };
+    }
+    return { ok: true };
+  }
+
+  function renderAttachment(att) {
+    if (!att || !att.url) return '—';
+    const name = escHtml(att.name || '첨부파일');
+    const url = escHtml(att.url);
+    const icon = (att.name || '').toLowerCase().endsWith('.zip') ? '📦' : '📄';
+    return '<a href="' + url + '" target="_blank" rel="noopener" class="tx-sm fw5" title="' + name + '">' + icon + ' ' + name + '</a>';
+  }
+
+  async function uploadOutAttachment(txId, file) {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = 'outbound-attachments/' + txId + '/' + Date.now() + '_' + safeName;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' });
+    const url = await getDownloadURL(storageRef);
+    return { name: file.name, url: url, path: path, contentType: file.type || '', size: file.size };
+  }
+
+  async function deleteOutAttachment(attachment) {
+    if (!attachment || !attachment.path) return;
+    try {
+      await deleteObject(ref(storage, attachment.path));
+    } catch (e) {
+      console.warn('첨부파일 삭제 실패:', e.message);
+    }
+  }
+
   async function recalcBalances(p) {
     const snap = await getDocs(collection(db, 'transactions'));
-    const txs = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
-      .filter(function(t) { return txMatchesProduct(t, p); })
-      .sort(function(a, b) {
-        const dc = a.date.localeCompare(b.date);
-        if (dc !== 0) return dc;
-        const as = (a.createdAt && a.createdAt.seconds) || 0;
-        const bs = (b.createdAt && b.createdAt.seconds) || 0;
-        return as - bs;
-      });
+    const txs = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+      .filter(function(t) { return txMatchesProduct(t, p); }));
     var balance = 0;
     for (var i = 0; i < txs.length; i++) {
       const t = txs[i];
@@ -861,10 +931,11 @@ try {
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
+        '<td class="ellip">' + renderAttachment(r.attachment) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
         '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
-    }).join('') || empty(7, '출고 내역 없음');
+    }).join('') || empty(8, '출고 내역 없음');
   }
 
   // HISTORY
@@ -874,10 +945,11 @@ try {
   async function _loadHist() {
     const pf = (document.getElementById('f-h-p').value || '').toLowerCase();
     const tf = document.getElementById('f-h-t').value || '';
-    const snap = await getDocs(query(collection(db, 'transactions'), orderBy('date', 'desc')));
+    const snap = await getDocs(collection(db, 'transactions'));
     let rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
     if (pf) rows = rows.filter(function(r) { return r.product.toLowerCase().includes(pf); });
     if (tf) rows = rows.filter(function(r) { return r.type === tf; });
+    rows = sortTxChronological(rows);
     window._hist = rows;
     document.getElementById('tb-hist').innerHTML = rows.map(function(r) {
       return '<tr><td class="tx-sm">' + r.date + '</td>' +
@@ -1011,6 +1083,25 @@ try {
     await window.reload();
   };
 
+  window.onOutFileSelect = function() {
+    const input = document.getElementById('o-file');
+    const label = document.getElementById('o-file-name');
+    const file = input.files && input.files[0];
+    if (!file) {
+      label.textContent = '선택된 파일 없음';
+      return;
+    }
+    const check = validateOutFile(file);
+    if (!check.ok) {
+      toast(check.msg, 'ng');
+      input.value = '';
+      label.textContent = '선택된 파일 없음';
+      return;
+    }
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    label.textContent = file.name + ' (' + mb + ' MB)';
+  };
+
   window.saveOut = async function() {
     const date = gv('o-date'), pn = gv('o-prod'), txType = gv('o-type');
     if (!date || !pn) { toast('날짜·상품 필수 입력', 'ng'); return; }
@@ -1022,10 +1113,25 @@ try {
     const qty = resolveQty(p, 'o-box', 'o-qty', 'o-plt');
     if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
     if (qty > (p.currentStock || 0)) { toast('재고 부족 — 현재 ' + (p.currentStock || 0).toLocaleString() + ' pcs', 'ng'); return; }
-    await addDoc(collection(db, 'transactions'), {
+    const fileInput = document.getElementById('o-file');
+    const file = fileInput.files && fileInput.files[0];
+    if (file) {
+      const check = validateOutFile(file);
+      if (!check.ok) { toast(check.msg, 'ng'); return; }
+    }
+    const txRef = await addDoc(collection(db, 'transactions'), {
       date, type: '출고', product: pn, productId: p.id, qty, balance: 0, txType,
       pltbox: gv('o-plt'), tracking: gv('o-track'), note: gv('o-note'), createdAt: serverTimestamp()
     });
+    if (file) {
+      try {
+        toast('첨부파일 업로드 중...', 'br');
+        const attachment = await uploadOutAttachment(txRef.id, file);
+        await updateDoc(txRef, { attachment: attachment });
+      } catch (e) {
+        toast('출고는 저장됐으나 첨부파일 업로드 실패: ' + e.message, 'wn');
+      }
+    }
     await recalcBalances(p);
     const ns = await syncProductStock(p);
     window.closeMo('mo-out');
@@ -1084,6 +1190,7 @@ try {
     const msg = label + ' 내역을 취소하시겠습니까?\n' +
       tx.product + ' · ' + (tx.qty || 0).toLocaleString() + ' pcs\n※ 재고가 자동 반영됩니다.';
     if (!confirm(msg)) return;
+    if (tx.attachment) await deleteOutAttachment(tx.attachment);
     await deleteDoc(doc(db, 'transactions', id));
     var ns = null;
     if (p) {
@@ -1250,6 +1357,8 @@ try {
       document.getElementById('o-plt-warn').textContent = '';
       document.getElementById('o-box-hint').style.display = 'none';
       document.getElementById('o-sib').style.display = 'none';
+      document.getElementById('o-file').value = '';
+      document.getElementById('o-file-name').textContent = '선택된 파일 없음';
       fillSels(); onOutProdChange();
     }
     if (id === 'mo-rm') {
