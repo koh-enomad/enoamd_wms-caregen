@@ -15,9 +15,9 @@
   │ [P2] 트랜잭션 수정          → window.editTx / saveTx  ✅ 구현됨              │
   │ [P2] PLT/BOX 자동환산       → boxQty + BOX 입력 → pcs 자동계산  ✅ 구현됨     │
   │ [P2] 리무벌→재고 연동       → saveRm / editRm CA입고→transactions  ✅ 구현됨 │
-  │ [P3] 로그인/인증            → Firebase Auth + Firestore Rules 잠그기       │
-  │ [P3] 페이지네이션           → loadHist/loadIn/loadOut (전체로드 → limit)   │
-  │ [P3] 엑셀 bulk import       → 신규 기능 (기존 시트 일괄 업로드)            │
+  │ [P3] 로그인/인증            → Firebase Auth + 로그인 게이트  ✅ 구현됨       │
+  │ [P3] 페이지네이션           → loadHist/loadIn/loadOut limit+cursor  ✅ 구현됨 │
+  │ [P3] 엑셀 bulk import       → pg-import + SheetJS 일괄 업로드  ✅ 구현됨     │
   │ [P4] 재고회전율 리포트      → 신규 페이지                                  │
   │ [P4] 입고예정(ETA) 관리     → ICN→LAX 운송중 화물 추적                     │
   │ [P4] FBA Shipment Plan      → 출고 시 ASIN/FNSKU/carton label 연동         │
@@ -130,10 +130,30 @@ textarea{resize:vertical;min-height:72px}
 .t-ok{background:var(--ok);color:#fff}.t-ng{background:var(--ng);color:#fff}.t-br{background:var(--brand);color:#fff}
 @keyframes tin{from{transform:translateX(16px);opacity:0}to{transform:translateX(0);opacity:1}}
 .page{display:none}.page.on{display:block}
+.auth-gate{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;align-items:center;justify-content:center;padding:24px}
+.auth-gate.hide{display:none}
+.auth-box{width:100%;max-width:360px;padding:32px;background:var(--sur);border:1px solid var(--bd);border-radius:var(--rl);box-shadow:var(--sh)}
+.app-shell.hide{display:none}
+.pg-bar{padding:12px 20px;border-top:1px solid var(--bd);display:flex;align-items:center;justify-content:center;gap:12px;font-size:13px;color:var(--tm);flex-wrap:wrap}
+.imp-preview{max-height:320px;overflow:auto;margin-top:12px}
+.imp-err{color:var(--ng)}.imp-ok{color:var(--ok)}
 @media(max-width:768px){.side{display:none}.g2{grid-template-columns:1fr}.s2{grid-column:span 1}.metrics{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-box">
+    <div class="ph-title" style="margin-bottom:4px">케어젠 WMS</div>
+    <p class="tx-m tx-sm" style="margin-bottom:20px">ENOMAD 창고 관리 · 로그인 필요</p>
+    <div class="fg"><label>이메일</label><input type="email" id="auth-email" placeholder="user@enomad.com" autocomplete="username"></div>
+    <div class="fg" style="margin-top:12px"><label>비밀번호</label><input type="password" id="auth-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <p id="auth-err" class="tx-sm" style="color:var(--ng);margin-top:10px;min-height:18px"></p>
+    <button class="btn btn-p" style="width:100%;margin-top:14px" onclick="doLogin()">로그인</button>
+  </div>
+</div>
+
+<div id="app-shell" class="app-shell hide">
 
 <nav class="nav">
   <div class="nav-brand">
@@ -145,6 +165,8 @@ textarea{resize:vertical;min-height:72px}
   <div class="nav-right">
     <span class="dot" id="fb-dot"></span>
     <span id="fb-msg">연결 중...</span>
+    <span id="auth-user" class="tx-sm tx-m"></span>
+    <button class="btn btn-sm" id="btn-logout" onclick="doLogout()">로그아웃</button>
     <span>CA Vernon 창고</span>
   </div>
 </nav>
@@ -158,10 +180,7 @@ textarea{resize:vertical;min-height:72px}
     <button class="nb" data-page="outbound"><span class="ni">⬆️</span>출고 처리</button>
     <button class="nb" data-page="history"><span class="ni">📋</span>입출고 내역</button>
     <button class="nb" data-page="removals"><span class="ni">↩️</span>리무벌 관리</button>
-    <!-- TODO[P3]: 엑셀 bulk import 메뉴 추가
-         <button class="nb" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
-         - SheetJS(xlsx) CDN 로드 → 시트 파싱 → products/transactions 일괄 addDoc
-         - 기존 구글시트 형식(날짜,입/출고,제품명,수량,잔여재고,비고)을 그대로 매핑 -->
+    <button class="nb" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
     <!-- TODO[P4]: 입고예정(ETA) 관리 메뉴 추가
          <button class="nb" data-page="eta"><span class="ni">🛫</span>입고 예정</button>
          - 신규 컬렉션 inbound_plans/{id}: product, qty, etd, eta, awb, status(운송중|도착|입고완료)
@@ -249,6 +268,11 @@ textarea{resize:vertical;min-height:72px}
           <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-in"></tbody>
         </table></div>
+        <div class="pg-bar" id="pg-in-bar">
+          <button class="btn btn-sm" id="pg-in-prev" onclick="pageInPrev()" disabled>← 이전</button>
+          <span id="pg-in-info">—</span>
+          <button class="btn btn-sm" id="pg-in-next" onclick="pageInNext()" disabled>다음 →</button>
+        </div>
       </div>
     </div>
 
@@ -276,6 +300,11 @@ textarea{resize:vertical;min-height:72px}
           <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-out"></tbody>
         </table></div>
+        <div class="pg-bar" id="pg-out-bar">
+          <button class="btn btn-sm" id="pg-out-prev" onclick="pageOutPrev()" disabled>← 이전</button>
+          <span id="pg-out-info">—</span>
+          <button class="btn btn-sm" id="pg-out-next" onclick="pageOutNext()" disabled>다음 →</button>
+        </div>
       </div>
     </div>
 
@@ -297,6 +326,38 @@ textarea{resize:vertical;min-height:72px}
           <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>비고</th><th></th></tr></thead>
           <tbody id="tb-hist"></tbody>
         </table></div>
+        <div class="pg-bar" id="pg-hist-bar">
+          <button class="btn btn-sm" id="pg-hist-prev" onclick="pageHistPrev()" disabled>← 이전</button>
+          <span id="pg-hist-info">—</span>
+          <button class="btn btn-sm" id="pg-hist-next" onclick="pageHistNext()" disabled>다음 →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- IMPORT -->
+    <div class="page" id="pg-import">
+      <div class="ph">
+        <div class="ph-title">엑셀 일괄 업로드</div>
+        <div class="ph-sub">구글시트 / 엑셀 입출고 내역 일괄 등록</div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><span class="card-title">파일 선택</span></div>
+        <div style="padding:20px">
+          <div class="fg">
+            <label>엑셀 / CSV 파일</label>
+            <input type="file" id="imp-file" accept=".xlsx,.xls,.csv" onchange="onImportFileSelect()">
+            <div class="file-hint" style="margin-top:6px">컬럼: 날짜 · 입/출고 · 제품명 · 수량 · 잔여재고 · 비고 (헤더 행 포함)</div>
+          </div>
+          <div class="imp-preview tw" id="imp-preview" style="display:none">
+            <table>
+              <thead><tr><th>#</th><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th>상태</th></tr></thead>
+              <tbody id="tb-imp-preview"></tbody>
+            </table>
+          </div>
+          <div class="btn-row" style="margin-top:16px">
+            <button class="btn btn-p" id="btn-imp-run" onclick="runBulkImport()" disabled>일괄 등록</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -317,6 +378,8 @@ textarea{resize:vertical;min-height:72px}
 
   </main>
 </div>
+
+</div><!-- /app-shell -->
 
 <!-- MODALS -->
 <div class="mo hide" id="mo-prod">
@@ -435,21 +498,20 @@ textarea{resize:vertical;min-height:72px}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js';
 import {
   getFirestore, collection, doc, setDoc, addDoc, getDocs,
-  updateDoc, deleteDoc, query, orderBy, where, limit,
+  updateDoc, deleteDoc, query, orderBy, where, limit, startAfter,
   serverTimestamp, getDoc
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
 import {
   getStorage, ref, uploadBytes, getDownloadURL, deleteObject
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-storage.js';
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js';
 
 // ── Config ──────────────────────────────────────────────────
-// TODO[P3]: 로그인/인증 (Firebase Auth)
-//  - Firestore Rules 뿐 아니라 Storage Rules 도 잠글 것
-//  - outbound-attachments/ 경로: 현재 allow read,write: if true 필요 (Console → Storage → Rules)
-//  - 현재 Firestore Rules 가 'allow read,write: if true' → URL 아는 사람 누구나 수정 가능
-//  - import getAuth, signInWithEmailAndPassword 추가 → 로그인 화면 표시
-//  - 인증 후에만 db 접근하도록 가드, Firestore Rules 를 'if request.auth != null' 로 변경
-//  - 고객사별 권한 분리는 멀티 고객사 전환(React) 단계에서 custom claims 활용
+// [P3] Firebase Console → Authentication → Email/Password 활성화 후 사용자 생성
+// [P3] Firestore Rules: allow read,write: if request.auth != null;
+// [P3] Storage Rules:   allow read,write: if request.auth != null;
 const FB_CFG = {
   apiKey: "AIzaSyB8JNymKcTVkU1VGmsU8rcIY3FFRGWuMMo",
   authDomain: "enoamdwms-carezen.firebaseapp.com",
@@ -504,11 +566,26 @@ function escHtml(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 }
 const OUT_FILE_MAX = 20 * 1024 * 1024;
+const PAGE_SIZE = 50;
+const STORAGE_BUCKETS = [
+  'gs://enoamdwms-carezen.firebasestorage.app',
+  'gs://enoamdwms-carezen.appspot.com'
+];
 
 // ── 전역 변수 ─────────────────────────────────────────────────
 let db;
+let fbApp;
+let auth;
 let storage;
+let activeStorageBucket = null;
+let appStarted = false;
 let prods = [];
+let importRows = [];
+const pgState = {
+  in:   { index: 0, cursors: [null], hasMore: false, count: 0 },
+  out:  { index: 0, cursors: [null], hasMore: false, count: 0 },
+  hist: { index: 0, cursors: [null], hasMore: false, count: 0 }
+};
 let editingProdId = null;
 let editingTxId = null;
 let editingRmId = null;
@@ -555,6 +632,16 @@ window.onInProdChange = notReady;
 window.onOutProdChange = notReady;
 window.onOutFileSelect  = notReady;
 window.showSib     = notReady;
+window.doLogin     = notReady;
+window.doLogout    = notReady;
+window.pageInPrev  = notReady;
+window.pageInNext  = notReady;
+window.pageOutPrev = notReady;
+window.pageOutNext = notReady;
+window.pageHistPrev = notReady;
+window.pageHistNext = notReady;
+window.onImportFileSelect = notReady;
+window.runBulkImport = notReady;
 
 // ── 모달 오버레이 클릭 닫기 ───────────────────────────────────
 document.querySelectorAll('.mo').forEach(function(mo) {
@@ -575,16 +662,63 @@ document.querySelectorAll('.nb[data-page]').forEach(function(btn) {
     if (pg === 'outbound') await window.loadOut();
     if (pg === 'history')  await window.loadHist();
     if (pg === 'removals') await loadRm();
+    if (pg === 'import') { importRows = []; document.getElementById('imp-preview').style.display = 'none'; document.getElementById('btn-imp-run').disabled = true; }
   });
 });
 
-// ── Firebase 초기화 ──────────────────────────────────────────
+// ── Firebase + Auth ────────────────────────────────────────────
 setFbStatus('Firebase 초기화 중...', '');
 
+const app = initializeApp(FB_CFG);
+auth = getAuth(app);
+
+window.doLogin = async function() {
+  const email = gv('auth-email');
+  const pass = gv('auth-pass');
+  document.getElementById('auth-err').textContent = '';
+  if (!email || !pass) { document.getElementById('auth-err').textContent = '이메일과 비밀번호를 입력해주세요.'; return; }
+  try {
+    setFbStatus('로그인 중...', 'wn');
+    await signInWithEmailAndPassword(auth, email, pass);
+  } catch (e) {
+    const msg = e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password'
+      ? '이메일 또는 비밀번호가 올바르지 않습니다.'
+      : (e.code === 'auth/user-not-found' ? '등록되지 않은 계정입니다.' : e.message);
+    document.getElementById('auth-err').textContent = msg;
+    setFbStatus('로그인 실패', 'ng');
+  }
+};
+
+window.doLogout = async function() {
+  await signOut(auth);
+  appStarted = false;
+  document.getElementById('app-shell').classList.add('hide');
+  document.getElementById('auth-gate').classList.remove('hide');
+  document.getElementById('auth-pass').value = '';
+  setFbStatus('로그아웃됨', '');
+};
+
+onAuthStateChanged(auth, async function(user) {
+  if (user) {
+    document.getElementById('auth-gate').classList.add('hide');
+    document.getElementById('app-shell').classList.remove('hide');
+    document.getElementById('auth-user').textContent = user.email || '';
+    if (!appStarted) await startApp();
+  } else {
+    document.getElementById('auth-gate').classList.remove('hide');
+    document.getElementById('app-shell').classList.add('hide');
+    document.getElementById('auth-user').textContent = '';
+  }
+});
+
+async function startApp() {
+  if (appStarted) return;
+
 try {
-  const app = initializeApp(FB_CFG);
+  fbApp = app;
   db = getFirestore(app);
-  storage = getStorage(app);
+  storage = getStorage(app, STORAGE_BUCKETS[0]);
+  activeStorageBucket = STORAGE_BUCKETS[0];
   setFbStatus('Firestore 연결 확인 중...', 'wn');
 
   const metaRef = doc(db, '_meta', 'seeded');
@@ -700,6 +834,29 @@ try {
     return { ok: true };
   }
 
+  function outFileContentType(file) {
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'zip') return 'application/zip';
+    return file.type || 'application/octet-stream';
+  }
+
+  function storageErrorMsg(e) {
+    const map = {
+      'storage/unauthorized': 'Storage 권한 없음 — Rules에서 outbound-attachments write 허용 확인 (deny 규칙보다 위에 배치)',
+      'storage/unauthenticated': 'Storage 인증 필요 — Rules 확인',
+      'storage/canceled': '업로드가 취소되었습니다.',
+      'storage/unknown': 'Storage 연결 실패 — Firebase Console에서 Storage 활성화 여부 확인',
+      'storage/object-not-found': '파일을 찾을 수 없습니다.',
+      'storage/bucket-not-found': 'Storage bucket 없음 — Console에서 bucket 이름 확인'
+    };
+    return (e && e.code && map[e.code]) ? map[e.code] : ((e && e.message) || '알 수 없는 오류');
+  }
+
+  function getStorageForBucket(bucket) {
+    return getStorage(fbApp, bucket || activeStorageBucket || STORAGE_BUCKETS[0]);
+  }
+
   function renderAttachment(att) {
     if (!att || !att.url) return '—';
     const name = escHtml(att.name || '첨부파일');
@@ -711,18 +868,37 @@ try {
   async function uploadOutAttachment(txId, file) {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = 'outbound-attachments/' + txId + '/' + Date.now() + '_' + safeName;
-    const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' });
-    const url = await getDownloadURL(storageRef);
-    return { name: file.name, url: url, path: path, contentType: file.type || '', size: file.size };
+    const contentType = outFileContentType(file);
+    const buckets = activeStorageBucket
+      ? [activeStorageBucket].concat(STORAGE_BUCKETS.filter(function(b) { return b !== activeStorageBucket; }))
+      : STORAGE_BUCKETS.slice();
+    var lastErr = null;
+    for (var i = 0; i < buckets.length; i++) {
+      try {
+        const bucket = buckets[i];
+        const st = getStorage(fbApp, bucket);
+        const storageRef = ref(st, path);
+        await uploadBytes(storageRef, file, { contentType: contentType });
+        const url = await getDownloadURL(storageRef);
+        storage = st;
+        activeStorageBucket = bucket;
+        return { name: file.name, url: url, path: path, contentType: contentType, size: file.size, bucket: bucket };
+      } catch (e) {
+        lastErr = e;
+        console.warn('[Storage upload]', buckets[i], e.code, e.message);
+        if (e.code === 'storage/unauthorized' || e.code === 'storage/unauthenticated') throw e;
+      }
+    }
+    throw lastErr || new Error('Storage 업로드 실패');
   }
 
   async function deleteOutAttachment(attachment) {
     if (!attachment || !attachment.path) return;
     try {
-      await deleteObject(ref(storage, attachment.path));
+      const st = getStorageForBucket(attachment.bucket);
+      await deleteObject(ref(st, attachment.path));
     } catch (e) {
-      console.warn('첨부파일 삭제 실패:', e.message);
+      console.warn('첨부파일 삭제 실패:', e.code, e.message);
     }
   }
 
@@ -897,14 +1073,47 @@ try {
     }).join('') || empty(6, '내역 없음');
   }
 
-  // INBOUND
-  async function _loadIn() {
+  // INBOUND / OUTBOUND / HISTORY — 페이지네이션
+  function resetPg(key) {
+    pgState[key] = { index: 0, cursors: [null], hasMore: false, count: 0 };
+  }
+
+  function updatePgBar(key, prefix) {
+    const st = pgState[key];
+    const start = st.index * PAGE_SIZE + 1;
+    const end = st.index * PAGE_SIZE + st.count;
+    document.getElementById('pg-' + prefix + '-info').textContent =
+      st.count ? (start + '–' + end + '건' + (st.hasMore ? ' · 다음 페이지 있음' : '')) : '내역 없음';
+    document.getElementById('pg-' + prefix + '-prev').disabled = st.index <= 0;
+    document.getElementById('pg-' + prefix + '-next').disabled = !st.hasMore;
+  }
+
+  async function fetchTxPage(constraints, state) {
+    const qArgs = [collection(db, 'transactions')].concat(constraints).concat([limit(PAGE_SIZE)]);
+    const cursor = state.cursors[state.index];
+    if (cursor) qArgs.push(startAfter(cursor));
+    const snap = await getDocs(query(...qArgs));
+    state.count = snap.docs.length;
+    state.hasMore = snap.docs.length === PAGE_SIZE;
+    if (snap.docs.length) state.cursors[state.index + 1] = snap.docs[snap.docs.length - 1];
+    return snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+  }
+
+  async function _loadIn(reset) {
+    if (reset) resetPg('in');
+    const st = pgState.in;
     const s = document.getElementById('f-in-s').value;
     const e = document.getElementById('f-in-e').value;
-    const snap = await getDocs(query(collection(db, 'transactions'), where('type', '==', '입고'), orderBy('date', 'desc')));
-    let rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
-    if (s) rows = rows.filter(function(r) { return r.date >= s; });
-    if (e) rows = rows.filter(function(r) { return r.date <= e; });
+    const constraints = [where('type', '==', '입고'), orderBy('date', 'desc')];
+    if (s) constraints.push(where('date', '>=', s));
+    if (e) constraints.push(where('date', '<=', e));
+    let rows;
+    try {
+      rows = await fetchTxPage(constraints, st);
+    } catch (err) {
+      toast('입고 내역 로드 실패: ' + err.message, 'ng');
+      rows = [];
+    }
     document.getElementById('tb-in').innerHTML = rows.map(function(r) {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
@@ -914,18 +1123,26 @@ try {
         '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
         '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
     }).join('') || empty(7, '입고 내역 없음');
+    updatePgBar('in', 'in');
   }
 
-  // OUTBOUND
-  async function _loadOut() {
+  async function _loadOut(reset) {
+    if (reset) resetPg('out');
+    const st = pgState.out;
     const s = document.getElementById('f-out-s').value;
     const e = document.getElementById('f-out-e').value;
     const t = document.getElementById('f-out-t').value;
-    const snap = await getDocs(query(collection(db, 'transactions'), where('type', '==', '출고'), orderBy('date', 'desc')));
-    let rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
-    if (s) rows = rows.filter(function(r) { return r.date >= s; });
-    if (e) rows = rows.filter(function(r) { return r.date <= e; });
-    if (t) rows = rows.filter(function(r) { return r.txType === t; });
+    const constraints = [where('type', '==', '출고'), orderBy('date', 'desc')];
+    if (s) constraints.push(where('date', '>=', s));
+    if (e) constraints.push(where('date', '<=', e));
+    if (t) constraints.push(where('txType', '==', t));
+    let rows;
+    try {
+      rows = await fetchTxPage(constraints, st);
+    } catch (err) {
+      toast('출고 내역 로드 실패: ' + err.message, 'ng');
+      rows = [];
+    }
     document.getElementById('tb-out').innerHTML = rows.map(function(r) {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
@@ -936,19 +1153,24 @@ try {
         '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
         '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
     }).join('') || empty(8, '출고 내역 없음');
+    updatePgBar('out', 'out');
   }
 
-  // HISTORY
-  // TODO[P3]: 페이지네이션 — 현재 전체 트랜잭션을 한번에 로드함.
-  //  데이터 누적되면 느려짐. orderBy + limit(50) + startAfter(lastDoc) 커서 방식으로 전환.
-  //  loadIn / loadOut 도 동일하게 적용 필요.
-  async function _loadHist() {
+  async function _loadHist(reset) {
+    if (reset) resetPg('hist');
+    const st = pgState.hist;
     const pf = (document.getElementById('f-h-p').value || '').toLowerCase();
     const tf = document.getElementById('f-h-t').value || '';
-    const snap = await getDocs(collection(db, 'transactions'));
-    let rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    const constraints = [orderBy('date', 'desc')];
+    if (tf) constraints.unshift(where('type', '==', tf));
+    let rows;
+    try {
+      rows = await fetchTxPage(constraints, st);
+    } catch (err) {
+      toast('내역 로드 실패: ' + err.message, 'ng');
+      rows = [];
+    }
     if (pf) rows = rows.filter(function(r) { return r.product.toLowerCase().includes(pf); });
-    if (tf) rows = rows.filter(function(r) { return r.type === tf; });
     rows = sortTxChronological(rows);
     window._hist = rows;
     document.getElementById('tb-hist').innerHTML = rows.map(function(r) {
@@ -962,6 +1184,7 @@ try {
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         '<td><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button></td></tr>';
     }).join('') || empty(9, '내역 없음');
+    updatePgBar('hist', 'hist');
   }
 
   // REMOVALS
@@ -980,6 +1203,143 @@ try {
     }).join('') || empty(8, '리무벌 내역 없음');
   }
 
+  // ── BULK IMPORT ─────────────────────────────────────────────
+  async function loadXLSXLib() {
+    if (window.XLSX) return window.XLSX;
+    await new Promise(function(resolve, reject) {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+      s.onload = resolve;
+      s.onerror = function() { reject(new Error('SheetJS 로드 실패')); };
+      document.head.appendChild(s);
+    });
+    return window.XLSX;
+  }
+
+  function parseExcelDate(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'number') {
+      return new Date((v - 25569) * 86400 * 1000).toISOString().slice(0, 10);
+    }
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    if (/^\d{4}[./]\d{1,2}[./]\d{1,2}/.test(s)) {
+      const p = s.replace(/[./]/g, '-').split('-');
+      return p[0] + '-' + p[1].padStart(2, '0') + '-' + p[2].padStart(2, '0');
+    }
+    return s.slice(0, 10);
+  }
+
+  function normalizeTxType(v) {
+    const s = String(v || '').trim().toLowerCase();
+    if (s.includes('입') || s === 'in') return '입고';
+    if (s.includes('출') || s === 'out') return '출고';
+    return '';
+  }
+
+  function findCol(headers, names) {
+    for (var i = 0; i < headers.length; i++) {
+      const h = String(headers[i] || '').trim().toLowerCase();
+      for (var j = 0; j < names.length; j++) {
+        if (h === names[j] || h.includes(names[j])) return i;
+      }
+    }
+    return -1;
+  }
+
+  function parseImportRows(rawRows) {
+    if (!rawRows.length) return [];
+    const headers = rawRows[0].map(function(c) { return String(c || ''); });
+    const iDate = findCol(headers, ['날짜', 'date']);
+    const iType = findCol(headers, ['입/출고', '입출고', '구분', 'type']);
+    const iProd = findCol(headers, ['제품명', '상품명', 'product']);
+    const iQty = findCol(headers, ['수량', 'qty']);
+    const iNote = findCol(headers, ['비고', 'note']);
+    if (iDate < 0 || iType < 0 || iProd < 0 || iQty < 0) {
+      throw new Error('필수 컬럼 없음 (날짜, 입/출고, 제품명, 수량)');
+    }
+    const out = [];
+    for (var r = 1; r < rawRows.length; r++) {
+      const row = rawRows[r];
+      if (!row || !row.length) continue;
+      const product = String(row[iProd] || '').trim();
+      if (!product) continue;
+      const type = normalizeTxType(row[iType]);
+      const qty = parseInt(row[iQty], 10) || 0;
+      const date = parseExcelDate(row[iDate]);
+      var err = '';
+      if (!type) err = '구분 오류';
+      else if (!date) err = '날짜 오류';
+      else if (qty <= 0) err = '수량 오류';
+      else if (!prods.find(function(p) { return p.name === product; })) err = '미등록 상품';
+      out.push({ rowNum: r + 1, date: date, type: type, product: product, qty: qty,
+        note: iNote >= 0 ? String(row[iNote] || '').trim() : '', ok: !err, err: err });
+    }
+    return out;
+  }
+
+  window.onImportFileSelect = async function() {
+    const input = document.getElementById('imp-file');
+    const file = input.files && input.files[0];
+    importRows = [];
+    document.getElementById('btn-imp-run').disabled = true;
+    if (!file) { document.getElementById('imp-preview').style.display = 'none'; return; }
+    try {
+      let rawRows;
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const text = await file.text();
+        rawRows = text.split(/\r?\n/).filter(function(l) { return l.trim(); }).map(function(l) { return l.split(','); });
+      } else {
+        const XLSX = await loadXLSXLib();
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+      }
+      importRows = parseImportRows(rawRows);
+      document.getElementById('tb-imp-preview').innerHTML = importRows.slice(0, 100).map(function(r) {
+        return '<tr><td>' + r.rowNum + '</td><td>' + r.date + '</td><td>' + r.type + '</td><td>' + r.product + '</td>' +
+          '<td class="tr mono">' + r.qty + '</td><td class="' + (r.ok ? 'imp-ok' : 'imp-err') + '">' + (r.ok ? 'OK' : r.err) + '</td></tr>';
+      }).join('') + (importRows.length > 100 ? '<tr><td colspan="6" class="tx-m">… 외 ' + (importRows.length - 100) + '건</td></tr>' : '');
+      document.getElementById('imp-preview').style.display = '';
+      const okCount = importRows.filter(function(r) { return r.ok; }).length;
+      document.getElementById('btn-imp-run').disabled = okCount === 0;
+      toast('파싱 완료 · ' + okCount + '/' + importRows.length + '건 등록 가능', okCount ? 'ok' : 'ng');
+    } catch (e) {
+      toast('파일 파싱 실패: ' + e.message, 'ng');
+      document.getElementById('imp-preview').style.display = 'none';
+    }
+  };
+
+  window.runBulkImport = async function() {
+    const rows = importRows.filter(function(r) { return r.ok; });
+    if (!rows.length) { toast('등록 가능한 행 없음', 'ng'); return; }
+    if (!confirm(rows.length + '건을 일괄 등록하시겠습니까?')) return;
+    document.getElementById('btn-imp-run').disabled = true;
+    toast('등록 중...', 'br');
+    const touched = {};
+    for (var i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const p = prods.find(function(x) { return x.name === r.product; });
+      if (!p) continue;
+      await addDoc(collection(db, 'transactions'), {
+        date: r.date, type: r.type, product: r.product, productId: p.id,
+        qty: r.qty, balance: 0, txType: r.type === '입고' ? '입고' : 'BULK',
+        pltbox: '', tracking: '', note: r.note, createdAt: serverTimestamp()
+      });
+      touched[p.id] = p;
+    }
+    for (const pid in touched) {
+      if (Object.prototype.hasOwnProperty.call(touched, pid)) {
+        await recalcBalances(touched[pid]);
+        await syncProductStock(touched[pid]);
+      }
+    }
+    toast(rows.length + '건 일괄 등록 완료 · 재고 반영됨', 'ok');
+    importRows = [];
+    document.getElementById('imp-file').value = '';
+    document.getElementById('imp-preview').style.display = 'none';
+    await window.reload();
+  };
+
   // ── 실제 함수를 window에 등록 ─────────────────────────────────
   window.reload = async function() {
     await loadProds();
@@ -988,9 +1348,16 @@ try {
   };
 
   window.filterProds = function(v) { renderProds(v); };
-  window.loadIn      = _loadIn;
-  window.loadOut     = _loadOut;
-  window.loadHist    = _loadHist;
+  window.loadIn      = function() { return _loadIn(true); };
+  window.loadOut     = function() { return _loadOut(true); };
+  window.loadHist    = function() { return _loadHist(true); };
+
+  window.pageInPrev = function() { if (pgState.in.index > 0) { pgState.in.index--; _loadIn(false); } };
+  window.pageInNext = function() { if (pgState.in.hasMore) { pgState.in.index++; _loadIn(false); } };
+  window.pageOutPrev = function() { if (pgState.out.index > 0) { pgState.out.index--; _loadOut(false); } };
+  window.pageOutNext = function() { if (pgState.out.hasMore) { pgState.out.index++; _loadOut(false); } };
+  window.pageHistPrev = function() { if (pgState.hist.index > 0) { pgState.hist.index--; _loadHist(false); } };
+  window.pageHistNext = function() { if (pgState.hist.hasMore) { pgState.hist.index++; _loadHist(false); } };
 
   window.saveProd = async function() {
     const name = gv('p-name');
@@ -1103,6 +1470,7 @@ try {
   };
 
   window.saveOut = async function() {
+    try {
     const date = gv('o-date'), pn = gv('o-prod'), txType = gv('o-type');
     if (!date || !pn) { toast('날짜·상품 필수 입력', 'ng'); return; }
     const p = prods.find(function(x) { return x.name === pn; });
@@ -1129,7 +1497,8 @@ try {
         const attachment = await uploadOutAttachment(txRef.id, file);
         await updateDoc(txRef, { attachment: attachment });
       } catch (e) {
-        toast('출고는 저장됐으나 첨부파일 업로드 실패: ' + e.message, 'wn');
+        console.error('[Storage upload error]', e.code, e.message, e);
+        toast('출고는 저장됐으나 첨부파일 업로드 실패: ' + storageErrorMsg(e), 'wn');
       }
     }
     await recalcBalances(p);
@@ -1137,6 +1506,10 @@ try {
     window.closeMo('mo-out');
     toast('출고 완료 · ' + pn + ' -' + qty.toLocaleString() + ' → 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
     await window.reload();
+    } catch (e) {
+      console.error('[saveOut]', e);
+      toast('출고 저장 실패: ' + (e.code ? storageErrorMsg(e) : e.message), 'ng');
+    }
   };
 
   window.saveRm = async function() {
@@ -1199,7 +1572,7 @@ try {
     }
     toast(label + ' 취소 완료' + (ns !== null ? ' · 잔여 ' + ns.toLocaleString() + ' pcs' : ''), 'ok');
     await window.reload();
-    _loadIn(); _loadOut(); _loadHist();
+    _loadIn(false); _loadOut(false); _loadHist(false);
   };
 
   window.delRm = async function(id) {
@@ -1271,7 +1644,7 @@ try {
     window.closeMo('mo-tx');
     toast('내역 수정 완료 · 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
     await window.reload();
-    _loadIn(); _loadOut(); _loadHist();
+    _loadIn(false); _loadOut(false); _loadHist(false);
   };
 
   window.editRm = async function(id) {
@@ -1332,8 +1705,10 @@ try {
     else sib.style.display = 'none';
   };
 
-  window.exportCSV = function() {
-    const rows = window._hist || [];
+  window.exportCSV = async function() {
+    toast('전체 내역 로드 중...', 'br');
+    const snap = await getDocs(collection(db, 'transactions'));
+    const rows = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); }));
     const h = ['날짜', '구분', '상품명', '수량', '잔여재고', '유형', 'Tracking', '비고'];
     const csv = [h].concat(rows.map(function(r) {
       return [r.date, r.type, r.product, r.qty, r.balance || '', r.txType || '', r.tracking || '', r.note || ''];
@@ -1380,12 +1755,15 @@ try {
 
   // ── 초기 데이터 로드 ──────────────────────────────────────────
   setFbStatus('연결됨', 'ok');
+  appStarted = true;
   await window.reload();
 
 } catch(e) {
   console.error(e);
   setFbStatus('오류: ' + e.message, 'ng');
   toast('Firebase 오류 — F12 콘솔 확인: ' + e.message, 'ng');
+  appStarted = false;
+}
 }
 </script>
 </body>
