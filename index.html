@@ -962,16 +962,6 @@ import {
   query, orderBy, where, limit, Timestamp, serverTimestamp, getDoc
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
 
-// ============================================================
-// FIREBASE CONFIG — 아래를 실제 Firebase 프로젝트 설정으로 교체
-// Firebase Console → 프로젝트 설정 → 앱 추가 → Web → Config 복사
-// ============================================================
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyB8JNymKcTVkU1VGmsU8rcIY3FFRGWuMMo",
   authDomain: "enoamdwms-carezen.firebaseapp.com",
@@ -980,9 +970,6 @@ const firebaseConfig = {
   messagingSenderId: "701934733796",
   appId: "1:701934733796:web:9be1a7126783d2f6ee1ff1"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
 
 // ============================================================
 // SEED DATA — 케어젠 기존 재고 (최초 1회만 실행)
