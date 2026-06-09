@@ -513,7 +513,7 @@ textarea{resize:vertical;min-height:72px}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js';
 import {
   getFirestore, collection, doc, setDoc, addDoc, getDocs,
-  updateDoc, deleteDoc, query, orderBy, where, limit, startAfter,
+  updateDoc, deleteDoc, query, orderBy, where, limit,
   serverTimestamp, getDoc
 } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
 import {
@@ -594,10 +594,11 @@ let storage;
 let appStarted = false;
 let prods = [];
 let importRows = [];
+let txCache = null;
 const pgState = {
-  in:   { index: 0, cursors: [null], hasMore: false, count: 0 },
-  out:  { index: 0, cursors: [null], hasMore: false, count: 0 },
-  hist: { index: 0, cursors: [null], hasMore: false, count: 0 }
+  in:   { index: 0, hasMore: false, count: 0 },
+  out:  { index: 0, hasMore: false, count: 0 },
+  hist: { index: 0, hasMore: false, count: 0 }
 };
 let editingProdId = null;
 let editingTxId = null;
@@ -1041,6 +1042,7 @@ try {
     }
     await recalcBalances(p);
     await syncProductStock(p);
+    invalidateTxCache();
     return txId;
   }
 
@@ -1054,6 +1056,7 @@ try {
       await recalcBalances(p);
       await syncProductStock(p);
     }
+    invalidateTxCache();
   }
 
   function fillSels() {
@@ -1069,13 +1072,69 @@ try {
   }
 
   // DASHBOARD
+  async function getAllTxs(forceRefresh) {
+    if (!forceRefresh && txCache) return txCache;
+    const snap = await getDocs(collection(db, 'transactions'));
+    txCache = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    return txCache;
+  }
+
+  function invalidateTxCache() {
+    txCache = null;
+  }
+
+  function sortTxByDateDesc(rows) {
+    return rows.slice().sort(function(a, b) {
+      const dc = b.date.localeCompare(a.date);
+      if (dc !== 0) return dc;
+      const as = (a.createdAt && a.createdAt.seconds) || 0;
+      const bs = (b.createdAt && b.createdAt.seconds) || 0;
+      return bs - as;
+    });
+  }
+
+  function paginateRows(rows, state) {
+    const start = state.index * PAGE_SIZE;
+    const page = rows.slice(start, start + PAGE_SIZE);
+    state.count = page.length;
+    state.hasMore = start + PAGE_SIZE < rows.length;
+    return page;
+  }
+
+  function renderInPending(rows) {
+    document.getElementById('tb-in-pending').innerHTML = rows.map(function(r) {
+      return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
+        '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
+        '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
+        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
+        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
+        txPendingActions(r) + '</tr>';
+    }).join('') || empty(7, '대기 중인 입고 요청 없음');
+  }
+
+  function renderOutPending(rows) {
+    document.getElementById('tb-out-pending').innerHTML = rows.map(function(r) {
+      return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
+        '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
+        '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
+        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
+        '<td class="ellip">' + renderFileLink(r) + '</td>' +
+        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
+        txPendingActions(r) + '</tr>';
+    }).join('') || empty(8, '대기 중인 출고 요청 없음');
+  }
+
   async function loadDash() {
     const now = new Date();
     const ms = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const snap = await getDocs(query(collection(db, 'transactions'), orderBy('date', 'desc'), limit(20)));
-    const allSnap = await getDocs(collection(db, 'transactions'));
-    const allTxs = allSnap.docs.map(function(d) { return d.data(); });
-    const txs = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    let allTxs;
+    try {
+      allTxs = await getAllTxs();
+    } catch (err) {
+      toast('대시보드 로드 실패: ' + err.message, 'ng');
+      allTxs = [];
+    }
+    const txs = sortTxByDateDesc(allTxs).slice(0, 20);
     const tot  = prods.reduce(function(s, p) { return s + (p.currentStock || 0); }, 0);
     const pendIn  = allTxs.filter(function(t) { return t.type === '입고' && isTxRequested(t); }).length;
     const pendOut = allTxs.filter(function(t) { return t.type === '출고' && isTxRequested(t); }).length;
@@ -1108,9 +1167,9 @@ try {
     }).join('') || empty(6, '내역 없음');
   }
 
-  // INBOUND / OUTBOUND / HISTORY — 페이지네이션
+  // INBOUND / OUTBOUND / HISTORY — 클라이언트 필터·페이지네이션 (복합 인덱스 불필요)
   function resetPg(key) {
-    pgState[key] = { index: 0, cursors: [null], hasMore: false, count: 0 };
+    pgState[key] = { index: 0, hasMore: false, count: 0 };
   }
 
   function updatePgBar(key, prefix) {
@@ -1123,74 +1182,30 @@ try {
     document.getElementById('pg-' + prefix + '-next').disabled = !st.hasMore;
   }
 
-  async function fetchTxPage(constraints, state) {
-    const qArgs = [collection(db, 'transactions')].concat(constraints).concat([limit(PAGE_SIZE)]);
-    const cursor = state.cursors[state.index];
-    if (cursor) qArgs.push(startAfter(cursor));
-    const snap = await getDocs(query(...qArgs));
-    state.count = snap.docs.length;
-    state.hasMore = snap.docs.length === PAGE_SIZE;
-    if (snap.docs.length) state.cursors[state.index + 1] = snap.docs[snap.docs.length - 1];
-    return snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
-  }
-
-  async function _loadInPending() {
-    const constraints = [where('type', '==', '입고'), where('status', '==', 'requested'), orderBy('date', 'desc')];
-    let rows;
-    try {
-      const snap = await getDocs(query(collection(db, 'transactions'), ...constraints));
-      rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
-    } catch (err) {
-      toast('입고 대기 목록 로드 실패: ' + err.message, 'ng');
-      rows = [];
-    }
-    document.getElementById('tb-in-pending').innerHTML = rows.map(function(r) {
-      return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
-        '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
-        '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
-        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
-        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        txPendingActions(r) + '</tr>';
-    }).join('') || empty(7, '대기 중인 입고 요청 없음');
-  }
-
-  async function _loadOutPending() {
-    const constraints = [where('type', '==', '출고'), where('status', '==', 'requested'), orderBy('date', 'desc')];
-    let rows;
-    try {
-      const snap = await getDocs(query(collection(db, 'transactions'), ...constraints));
-      rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
-    } catch (err) {
-      toast('출고 대기 목록 로드 실패: ' + err.message, 'ng');
-      rows = [];
-    }
-    document.getElementById('tb-out-pending').innerHTML = rows.map(function(r) {
-      return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
-        '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
-        '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
-        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
-        '<td class="ellip">' + renderFileLink(r) + '</td>' +
-        '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        txPendingActions(r) + '</tr>';
-    }).join('') || empty(8, '대기 중인 출고 요청 없음');
-  }
-
   async function _loadIn(reset) {
     if (reset) resetPg('in');
-    await _loadInPending();
-    const st = pgState.in;
-    const s = document.getElementById('f-in-s').value;
-    const e = document.getElementById('f-in-e').value;
-    const constraints = [where('type', '==', '입고'), where('status', '==', 'completed'), orderBy('date', 'desc')];
-    if (s) constraints.push(where('date', '>=', s));
-    if (e) constraints.push(where('date', '<=', e));
-    let rows;
+    let all;
     try {
-      rows = await fetchTxPage(constraints, st);
+      all = await getAllTxs(reset);
     } catch (err) {
       toast('입고 내역 로드 실패: ' + err.message, 'ng');
-      rows = [];
+      all = [];
     }
+    const pending = sortTxByDateDesc(all.filter(function(t) {
+      return t.type === '입고' && isTxRequested(t);
+    }));
+    renderInPending(pending);
+
+    const s = document.getElementById('f-in-s').value;
+    const e = document.getElementById('f-in-e').value;
+    var completed = all.filter(function(t) {
+      if (t.type !== '입고' || !isTxCompleted(t)) return false;
+      if (s && t.date < s) return false;
+      if (e && t.date > e) return false;
+      return true;
+    });
+    completed = sortTxByDateDesc(completed);
+    const rows = paginateRows(completed, pgState.in);
     document.getElementById('tb-in').innerHTML = rows.map(function(r) {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
@@ -1206,22 +1221,30 @@ try {
 
   async function _loadOut(reset) {
     if (reset) resetPg('out');
-    await _loadOutPending();
-    const st = pgState.out;
+    let all;
+    try {
+      all = await getAllTxs(reset);
+    } catch (err) {
+      toast('출고 내역 로드 실패: ' + err.message, 'ng');
+      all = [];
+    }
+    const pending = sortTxByDateDesc(all.filter(function(t) {
+      return t.type === '출고' && isTxRequested(t);
+    }));
+    renderOutPending(pending);
+
     const s = document.getElementById('f-out-s').value;
     const e = document.getElementById('f-out-e').value;
     const t = document.getElementById('f-out-t').value;
-    const constraints = [where('type', '==', '출고'), where('status', '==', 'completed'), orderBy('date', 'desc')];
-    if (s) constraints.push(where('date', '>=', s));
-    if (e) constraints.push(where('date', '<=', e));
-    if (t) constraints.push(where('txType', '==', t));
-    let rows;
-    try {
-      rows = await fetchTxPage(constraints, st);
-    } catch (err) {
-      toast('출고 내역 로드 실패: ' + err.message, 'ng');
-      rows = [];
-    }
+    var completed = all.filter(function(r) {
+      if (r.type !== '출고' || !isTxCompleted(r)) return false;
+      if (s && r.date < s) return false;
+      if (e && r.date > e) return false;
+      if (t && r.txType !== t) return false;
+      return true;
+    });
+    completed = sortTxByDateDesc(completed);
+    const rows = paginateRows(completed, pgState.out);
     document.getElementById('tb-out').innerHTML = rows.map(function(r) {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td><span class="badge b-br" style="font-size:10px">' + (r.txType || '') + '</span></td>' +
@@ -1241,17 +1264,20 @@ try {
     const st = pgState.hist;
     const pf = (document.getElementById('f-h-p').value || '').toLowerCase();
     const tf = document.getElementById('f-h-t').value || '';
-    const constraints = [orderBy('date', 'desc')];
-    if (tf) constraints.unshift(where('type', '==', tf));
-    let rows;
+    let all;
     try {
-      rows = await fetchTxPage(constraints, st);
+      all = await getAllTxs(reset);
     } catch (err) {
       toast('내역 로드 실패: ' + err.message, 'ng');
-      rows = [];
+      all = [];
     }
-    if (pf) rows = rows.filter(function(r) { return r.product.toLowerCase().includes(pf); });
-    rows = sortTxChronological(rows);
+    var filtered = all.filter(function(r) {
+      if (tf && r.type !== tf) return false;
+      if (pf && !r.product.toLowerCase().includes(pf)) return false;
+      return true;
+    });
+    filtered = sortTxChronological(filtered);
+    const rows = paginateRows(filtered, st);
     window._hist = rows;
     document.getElementById('tb-hist').innerHTML = rows.map(function(r) {
       return '<tr' + (isTxRequested(r) ? ' class="ls"' : '') + '><td class="tx-sm">' + r.date + '</td>' +
@@ -1419,6 +1445,7 @@ try {
         await syncProductStock(touched[pid]);
       }
     }
+    invalidateTxCache();
     toast(rows.length + '건 일괄 등록 완료 · 재고 반영됨', 'ok');
     importRows = [];
     document.getElementById('imp-file').value = '';
@@ -1428,6 +1455,7 @@ try {
 
   // ── 실제 함수를 window에 등록 ─────────────────────────────────
   window.reload = async function() {
+    invalidateTxCache();
     await loadProds();
     await loadDash();
     document.getElementById('up-at').textContent = new Date().toLocaleString('ko-KR');
@@ -1529,6 +1557,7 @@ try {
       date, type: '입고', status: 'requested', product: pn, productId: p.id, qty, balance: null, txType: '입고',
       pltbox: gv('i-plt'), tracking: gv('i-awb'), note: gv('i-note'), createdAt: serverTimestamp()
     });
+    invalidateTxCache();
     window.closeMo('mo-in');
     toast('입고 요청 등록 · ' + pn + ' +' + qty.toLocaleString() + ' pcs (완료 처리 시 재고 반영)', 'ok');
     await window.reload();
@@ -1585,6 +1614,7 @@ try {
         toast('출고는 저장됐으나 첨부파일 업로드 실패: ' + storageErrorMsg(e), 'wn');
       }
     }
+    invalidateTxCache();
     window.closeMo('mo-out');
     toast('출고 요청 등록 · ' + pn + ' -' + qty.toLocaleString() + ' pcs (완료 처리 시 재고 차감)', 'ok');
     await window.reload();
@@ -1655,6 +1685,7 @@ try {
     await updateDoc(doc(db, 'transactions', id), { status: 'completed', updatedAt: serverTimestamp() });
     await recalcBalances(p);
     const ns = await syncProductStock(p);
+    invalidateTxCache();
     toast(label + ' 완료 · 잔여 ' + ns.toLocaleString() + ' pcs', 'ok');
     await window.reload();
     _loadIn(false); _loadOut(false); _loadHist(false);
@@ -1677,6 +1708,7 @@ try {
       ns = await syncProductStock(p);
       await recalcBalances(p);
     }
+    invalidateTxCache();
     toast(label + ' 취소 완료' + (ns !== null ? ' · 잔여 ' + ns.toLocaleString() + ' pcs' : ''), 'ok');
     await window.reload();
     _loadIn(false); _loadOut(false); _loadHist(false);
@@ -1753,6 +1785,7 @@ try {
       await recalcBalances(p);
       ns = await syncProductStock(p);
     }
+    invalidateTxCache();
     window.closeMo('mo-tx');
     toast('내역 수정 완료' + (ns !== null ? ' · 잔여 ' + ns.toLocaleString() + ' pcs' : ''), 'ok');
     await window.reload();
