@@ -3,762 +3,262 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>케어젠 WMS — ENOMAD Logistics</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>케어젠 WMS — ENOMAD</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --brand: #3B9CAD;
-    --brand-dark: #2d7a8a;
-    --brand-light: #e8f6f8;
-    --brand-text: #1a5a67;
-    --bg: #f5f7f8;
-    --surface: #ffffff;
-    --surface2: #f0f4f5;
-    --border: rgba(0,0,0,0.1);
-    --border-strong: rgba(0,0,0,0.18);
-    --text: #1a2224;
-    --text-muted: #5a7176;
-    --text-hint: #8fa4a8;
-    --success: #1d8a5a;
-    --success-bg: #e8f5ee;
-    --danger: #c0392b;
-    --danger-bg: #fbeaea;
-    --warning: #b07d10;
-    --warning-bg: #fdf4de;
-    --radius: 8px;
-    --radius-lg: 12px;
-    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-  }
-
-  body {
-    font-family: 'IBM Plex Sans KR', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 14px;
-    line-height: 1.6;
-    min-height: 100vh;
-  }
-
-  /* --- TOP NAV --- */
-  .topnav {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 0 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 52px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-  .topnav-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .brand-logo {
-    width: 28px;
-    height: 28px;
-    background: var(--brand);
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: -0.5px;
-  }
-  .brand-name { font-size: 13px; font-weight: 600; color: var(--text); }
-  .brand-sep { color: var(--text-hint); margin: 0 4px; }
-  .brand-client { font-size: 13px; color: var(--text-muted); }
-  .topnav-meta { font-size: 12px; color: var(--text-hint); display: flex; align-items: center; gap: 12px; }
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block; }
-  #firebase-status { font-size: 11px; }
-
-  /* --- LAYOUT --- */
-  .layout { display: flex; min-height: calc(100vh - 52px); }
-
-  .sidebar {
-    width: 220px;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    padding: 20px 0;
-    flex-shrink: 0;
-    position: sticky;
-    top: 52px;
-    height: calc(100vh - 52px);
-    overflow-y: auto;
-  }
-  .sidebar-section { padding: 0 12px; margin-bottom: 8px; }
-  .sidebar-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-hint);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 0 8px;
-    margin-bottom: 4px;
-  }
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 13px;
-    color: var(--text-muted);
-    font-weight: 500;
-    transition: all 0.12s;
-    border: none;
-    background: none;
-    width: 100%;
-    text-align: left;
-  }
-  .nav-item:hover { background: var(--surface2); color: var(--text); }
-  .nav-item.active { background: var(--brand-light); color: var(--brand-text); }
-  .nav-icon { font-size: 15px; width: 18px; text-align: center; }
-
-  .main { flex: 1; padding: 24px; min-width: 0; }
-
-  /* --- PAGE HEADER --- */
-  .page-header { margin-bottom: 20px; }
-  .page-title { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
-  .page-sub { font-size: 13px; color: var(--text-muted); }
-
-  /* --- METRIC CARDS --- */
-  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px; }
-  .metric-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 16px;
-    box-shadow: var(--shadow);
-  }
-  .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 500; letter-spacing: 0.03em; margin-bottom: 6px; }
-  .metric-value { font-size: 24px; font-weight: 600; color: var(--text); line-height: 1; margin-bottom: 4px; font-family: 'IBM Plex Mono', monospace; }
-  .metric-unit { font-size: 11px; color: var(--text-hint); }
-  .metric-card.accent { border-left: 3px solid var(--brand); }
-  .metric-card.success { border-left: 3px solid var(--success); }
-  .metric-card.danger { border-left: 3px solid var(--danger); }
-
-  /* --- CARD --- */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
-    overflow: hidden;
-    margin-bottom: 20px;
-  }
-  .card-header {
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .card-title { font-size: 14px; font-weight: 600; color: var(--text); }
-  .card-body { padding: 20px; }
-
-  /* --- BUTTONS --- */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 14px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid var(--border-strong);
-    background: var(--surface);
-    color: var(--text);
-    transition: all 0.12s;
-    font-family: inherit;
-  }
-  .btn:hover { background: var(--surface2); }
-  .btn-primary { background: var(--brand); border-color: var(--brand-dark); color: white; }
-  .btn-primary:hover { background: var(--brand-dark); }
-  .btn-success { background: var(--success); border-color: var(--success); color: white; }
-  .btn-success:hover { opacity: 0.9; }
-  .btn-danger { background: var(--danger); border-color: var(--danger); color: white; }
-  .btn-danger:hover { opacity: 0.9; }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  /* --- BADGE --- */
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
-  }
-  .badge-in { background: var(--success-bg); color: var(--success); }
-  .badge-out { background: var(--danger-bg); color: var(--danger); }
-  .badge-warn { background: var(--warning-bg); color: var(--warning); }
-  .badge-brand { background: var(--brand-light); color: var(--brand-text); }
-
-  /* --- TABLE --- */
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th {
-    text-align: left;
-    padding: 10px 16px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-muted);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface2);
-    white-space: nowrap;
-  }
-  td { padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--surface2); }
-  .mono { font-family: 'IBM Plex Mono', monospace; }
-  .text-right { text-align: right; }
-  .text-center { text-align: center; }
-
-  /* --- FORMS --- */
-  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .form-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-  .form-group { display: flex; flex-direction: column; gap: 5px; }
-  .form-group.span2 { grid-column: span 2; }
-  .form-group.span3 { grid-column: span 3; }
-  label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  input[type="text"], input[type="number"], input[type="date"], select, textarea {
-    padding: 8px 12px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    font-size: 13px;
-    font-family: inherit;
-    background: var(--surface);
-    color: var(--text);
-    width: 100%;
-    outline: none;
-    transition: border-color 0.12s;
-  }
-  input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(59,156,173,0.12); }
-  textarea { resize: vertical; min-height: 80px; }
-
-  /* --- TABS --- */
-  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-  .tab-btn {
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-muted);
-    cursor: pointer;
-    border: none;
-    background: none;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    font-family: inherit;
-    transition: all 0.12s;
-  }
-  .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { color: var(--brand); border-bottom-color: var(--brand); }
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
-
-  /* --- FILTERS --- */
-  .filter-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .filter-row input, .filter-row select {
-    width: auto;
-    min-width: 140px;
-  }
-
-  /* --- ALERT --- */
-  .alert {
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .alert-success { background: var(--success-bg); color: var(--success); border: 1px solid rgba(29,138,90,0.2); }
-  .alert-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(192,57,43,0.2); }
-  .alert-warning { background: var(--warning-bg); color: var(--warning); border: 1px solid rgba(176,125,16,0.2); }
-
-  /* --- MODAL --- */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.45);
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-  .modal-overlay.hidden { display: none; }
-  .modal {
-    background: var(--surface);
-    border-radius: var(--radius-lg);
-    width: 100%;
-    max-width: 580px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
-    overflow: hidden;
-  }
-  .modal-header {
-    padding: 18px 24px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .modal-title { font-size: 15px; font-weight: 600; }
-  .modal-close { background: none; border: none; cursor: pointer; font-size: 20px; color: var(--text-hint); padding: 4px; line-height: 1; }
-  .modal-close:hover { color: var(--text); }
-  .modal-body { padding: 24px; }
-  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
-
-  /* --- EMPTY STATE --- */
-  .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
-  .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
-  .empty-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
-  .empty-sub { font-size: 13px; color: var(--text-hint); }
-
-  /* --- LOADING --- */
-  .spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--border);
-    border-top-color: var(--brand);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* --- MISC --- */
-  .flex { display: flex; }
-  .items-center { align-items: center; }
-  .gap-2 { gap: 8px; }
-  .gap-3 { gap: 12px; }
-  .text-sm { font-size: 12px; }
-  .text-muted { color: var(--text-muted); }
-  .fw500 { font-weight: 500; }
-  .mt-1 { margin-top: 4px; }
-  .mb-3 { margin-bottom: 12px; }
-  .hidden { display: none !important; }
-  .low-stock { background: var(--warning-bg); }
-  .stock-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: 'IBM Plex Mono', monospace;
-  }
-
-  /* --- TOAST --- */
-  #toast-container {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    z-index: 300;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .toast {
-    padding: 12px 18px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    font-weight: 500;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-    animation: slideIn 0.2s ease;
-    max-width: 320px;
-  }
-  .toast-success { background: var(--success); color: white; }
-  .toast-danger { background: var(--danger); color: white; }
-  .toast-info { background: var(--brand); color: white; }
-  @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-
-  @media (max-width: 768px) {
-    .sidebar { display: none; }
-    .form-grid { grid-template-columns: 1fr; }
-    .form-grid .span2 { grid-column: span 1; }
-    .metrics { grid-template-columns: 1fr 1fr; }
-  }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --brand:#3B9CAD;--brand-dk:#2d7a8a;--brand-lt:#e8f6f8;--brand-tx:#1a5a67;
+  --bg:#f5f7f8;--sur:#fff;--sur2:#f0f4f5;
+  --bd:rgba(0,0,0,.1);--bd2:rgba(0,0,0,.18);
+  --tx:#1a2224;--tm:#5a7176;--th:#8fa4a8;
+  --ok:#1d8a5a;--ok-bg:#e8f5ee;
+  --ng:#c0392b;--ng-bg:#fbeaea;
+  --wn:#b07d10;--wn-bg:#fdf4de;
+  --r:8px;--rl:12px;
+  --sh:0 1px 3px rgba(0,0,0,.08)
+}
+body{font-family:'IBM Plex Sans KR',sans-serif;background:var(--bg);color:var(--tx);font-size:14px;line-height:1.6;min-height:100vh}
+.nav{background:var(--sur);border-bottom:1px solid var(--bd);padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:52px;position:sticky;top:0;z-index:100}
+.nav-brand{display:flex;align-items:center;gap:10px}
+.nav-logo{width:28px;height:28px;background:var(--brand);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:600}
+.nav-name{font-size:13px;font-weight:600}
+.nav-sep{color:var(--th);margin:0 4px}
+.nav-client{font-size:13px;color:var(--tm)}
+.nav-right{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--th)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--th);display:inline-block}
+.dot.ok{background:var(--ok)}.dot.ng{background:var(--ng)}.dot.wn{background:var(--wn)}
+.wrap{display:flex;min-height:calc(100vh - 52px)}
+.side{width:220px;background:var(--sur);border-right:1px solid var(--bd);padding:20px 0;flex-shrink:0;position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto}
+.side-lbl{font-size:10px;font-weight:600;color:var(--th);letter-spacing:.08em;text-transform:uppercase;padding:0 20px;margin:16px 0 4px}
+.side-lbl:first-child{margin-top:0}
+.nb{display:flex;align-items:center;gap:10px;padding:8px 12px;margin:0 8px;border-radius:var(--r);cursor:pointer;font-size:13px;color:var(--tm);font-weight:500;transition:all .12s;border:none;background:none;width:calc(100% - 16px);text-align:left}
+.nb:hover{background:var(--sur2);color:var(--tx)}.nb.on{background:var(--brand-lt);color:var(--brand-tx)}
+.ni{width:18px;text-align:center;font-size:14px}
+.main{flex:1;padding:24px;min-width:0}
+.ph{margin-bottom:20px}.ph-title{font-size:18px;font-weight:600}.ph-sub{font-size:13px;color:var(--tm);margin-top:2px}
+.ph-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.mc{background:var(--sur);border:1px solid var(--bd);border-radius:var(--rl);padding:16px;box-shadow:var(--sh)}
+.mc.a{border-left:3px solid var(--brand)}.mc.ok{border-left:3px solid var(--ok)}.mc.ng{border-left:3px solid var(--ng)}
+.mc-lbl{font-size:11px;color:var(--tm);font-weight:500;margin-bottom:6px}
+.mc-val{font-size:24px;font-weight:600;line-height:1;font-family:'IBM Plex Mono',monospace;margin-bottom:4px}
+.mc-unit{font-size:11px;color:var(--th)}
+.card{background:var(--sur);border:1px solid var(--bd);border-radius:var(--rl);box-shadow:var(--sh);overflow:hidden;margin-bottom:20px}
+.card-hd{padding:14px 20px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.card-title{font-size:14px;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--bd2);background:var(--sur);color:var(--tx);transition:all .12s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:var(--sur2)}.btn-p{background:var(--brand);border-color:var(--brand-dk);color:#fff}.btn-p:hover{background:var(--brand-dk)}
+.btn-ok{background:var(--ok);border-color:var(--ok);color:#fff}.btn-ok:hover{opacity:.9}
+.btn-ng{background:var(--ng);border-color:var(--ng);color:#fff}.btn-ng:hover{opacity:.9}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;white-space:nowrap}
+.b-in{background:var(--ok-bg);color:var(--ok)}.b-out{background:var(--ng-bg);color:var(--ng)}
+.b-wn{background:var(--wn-bg);color:var(--wn)}.b-br{background:var(--brand-lt);color:var(--brand-tx)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:var(--tm);letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--bd);background:var(--sur2);white-space:nowrap}
+td{padding:11px 16px;border-bottom:1px solid var(--bd);vertical-align:middle}
+tr:last-child td{border-bottom:none}tr:hover td{background:var(--sur2)}
+.tr{text-align:right}.tc{text-align:center}
+.mono{font-family:'IBM Plex Mono',monospace}.fw5{font-weight:500}.fw6{font-weight:600}
+.tx-m{color:var(--tm)}.tx-h{color:var(--th)}.tx-sm{font-size:12px}
+.ellip{max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls td{background:var(--wn-bg)}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:12px;font-weight:600;color:var(--tm)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.s2{grid-column:span 2}
+input,select,textarea{padding:8px 12px;border:1px solid var(--bd2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--sur);color:var(--tx);width:100%;outline:none;transition:border-color .12s}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(59,156,173,.12)}
+textarea{resize:vertical;min-height:72px}
+.fr{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.fr input,.fr select{width:auto}
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px}
+.mo.hide{display:none}
+.mo-box{background:var(--sur);border-radius:var(--rl);width:100%;max-width:560px;box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden}
+.mo-hd{padding:18px 24px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between}
+.mo-title{font-size:15px;font-weight:600}
+.mo-x{background:none;border:none;cursor:pointer;font-size:22px;color:var(--th);line-height:1;padding:2px 6px}.mo-x:hover{color:var(--tx)}
+.mo-bd{padding:24px}.mo-ft{padding:16px 24px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;gap:10px}
+.sp{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:13px;font-weight:600;font-family:'IBM Plex Mono',monospace}
+.sib{margin-top:12px;padding:10px 14px;background:var(--sur2);border-radius:var(--r);font-size:12px}
+#toast{position:fixed;bottom:24px;right:24px;z-index:300;display:flex;flex-direction:column;gap:8px}
+.toast{padding:11px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,.15);animation:tin .2s ease;max-width:340px}
+.t-ok{background:var(--ok);color:#fff}.t-ng{background:var(--ng);color:#fff}.t-br{background:var(--brand);color:#fff}
+@keyframes tin{from{transform:translateX(16px);opacity:0}to{transform:translateX(0);opacity:1}}
+.page{display:none}.page.on{display:block}
+@media(max-width:768px){.side{display:none}.g2{grid-template-columns:1fr}.s2{grid-column:span 1}.metrics{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
 
-<!-- TOP NAV -->
-<nav class="topnav">
-  <div class="topnav-brand">
-    <div class="brand-logo">EN</div>
-    <span class="brand-name">ENOMAD</span>
-    <span class="brand-sep">/</span>
-    <span class="brand-client">케어젠 WMS</span>
+<nav class="nav">
+  <div class="nav-brand">
+    <div class="nav-logo">EN</div>
+    <span class="nav-name">ENOMAD</span>
+    <span class="nav-sep">/</span>
+    <span class="nav-client">케어젠 WMS</span>
   </div>
-  <div class="topnav-meta">
-    <span class="status-dot"></span>
-    <span id="firebase-status">Firebase 연결 중...</span>
+  <div class="nav-right">
+    <span class="dot" id="fb-dot"></span>
+    <span id="fb-msg">연결 중...</span>
     <span>CA Vernon 창고</span>
   </div>
 </nav>
 
-<div class="layout">
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="sidebar-section">
-      <div class="sidebar-label">메뉴</div>
-      <button class="nav-item active" onclick="showPage('dashboard')">
-        <span class="nav-icon">📊</span> 대시보드
-      </button>
-      <button class="nav-item" onclick="showPage('products')">
-        <span class="nav-icon">📦</span> 상품 관리
-      </button>
-      <button class="nav-item" onclick="showPage('inbound')">
-        <span class="nav-icon">⬇️</span> 입고 처리
-      </button>
-      <button class="nav-item" onclick="showPage('outbound')">
-        <span class="nav-icon">⬆️</span> 출고 처리
-      </button>
-      <button class="nav-item" onclick="showPage('history')">
-        <span class="nav-icon">📋</span> 입출고 내역
-      </button>
-      <button class="nav-item" onclick="showPage('removals')">
-        <span class="nav-icon">↩️</span> 리무벌 관리
-      </button>
-    </div>
-    <div class="sidebar-section" style="margin-top: 16px;">
-      <div class="sidebar-label">바로가기</div>
-      <button class="nav-item" onclick="openInboundModal()">
-        <span class="nav-icon">+</span> 입고 등록
-      </button>
-      <button class="nav-item" onclick="openOutboundModal()">
-        <span class="nav-icon">↑</span> 출고 등록
-      </button>
-    </div>
+<div class="wrap">
+  <aside class="side">
+    <div class="side-lbl">메뉴</div>
+    <button class="nb on" data-page="dash"><span class="ni">📊</span>대시보드</button>
+    <button class="nb" data-page="products"><span class="ni">📦</span>상품 관리</button>
+    <button class="nb" data-page="inbound"><span class="ni">⬇️</span>입고 처리</button>
+    <button class="nb" data-page="outbound"><span class="ni">⬆️</span>출고 처리</button>
+    <button class="nb" data-page="history"><span class="ni">📋</span>입출고 내역</button>
+    <button class="nb" data-page="removals"><span class="ni">↩️</span>리무벌 관리</button>
+    <div class="side-lbl">바로가기</div>
+    <button class="nb" onclick="openMo('mo-in')"><span class="ni">+</span>입고 등록</button>
+    <button class="nb" onclick="openMo('mo-out')"><span class="ni">↑</span>출고 등록</button>
   </aside>
 
-  <!-- MAIN CONTENT -->
   <main class="main">
-    <div id="alert-area"></div>
 
     <!-- DASHBOARD -->
-    <div id="page-dashboard" class="tab-panel active">
-      <div class="page-header">
-        <div class="page-title">케어젠 재고 현황</div>
-        <div class="page-sub">CA Vernon 창고 기준 · <span id="last-updated">로딩 중...</span></div>
+    <div class="page on" id="pg-dash">
+      <div class="ph">
+        <div class="ph-title">케어젠 재고 현황</div>
+        <div class="ph-sub">CA Vernon 창고 기준 · <span id="up-at">로딩 중...</span></div>
       </div>
-
-      <div class="metrics" id="metrics-area">
-        <div class="metric-card accent">
-          <div class="metric-label">총 SKU</div>
-          <div class="metric-value" id="m-sku">—</div>
-          <div class="metric-unit">등록 상품</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">총 재고</div>
-          <div class="metric-value" id="m-total">—</div>
-          <div class="metric-unit">pcs</div>
-        </div>
-        <div class="metric-card success">
-          <div class="metric-label">이번 달 입고</div>
-          <div class="metric-value" id="m-in">—</div>
-          <div class="metric-unit">pcs</div>
-        </div>
-        <div class="metric-card danger">
-          <div class="metric-label">이번 달 출고</div>
-          <div class="metric-value" id="m-out">—</div>
-          <div class="metric-unit">pcs</div>
-        </div>
+      <div class="metrics">
+        <div class="mc a"><div class="mc-lbl">총 SKU</div><div class="mc-val" id="m-sku">—</div><div class="mc-unit">등록 상품</div></div>
+        <div class="mc"><div class="mc-lbl">총 재고</div><div class="mc-val" id="m-tot">—</div><div class="mc-unit">pcs</div></div>
+        <div class="mc ok"><div class="mc-lbl">이번 달 입고</div><div class="mc-val" id="m-in">—</div><div class="mc-unit">pcs</div></div>
+        <div class="mc ng"><div class="mc-lbl">이번 달 출고</div><div class="mc-val" id="m-out">—</div><div class="mc-unit">pcs</div></div>
       </div>
-
       <div class="card">
-        <div class="card-header">
+        <div class="card-hd">
           <span class="card-title">현재 재고</span>
-          <div class="flex gap-2">
-            <button class="btn btn-sm" onclick="refreshAll()">🔄 새로고침</button>
-            <button class="btn btn-sm btn-primary" onclick="openInboundModal()">+ 입고</button>
-            <button class="btn btn-sm btn-danger" onclick="openOutboundModal()">↑ 출고</button>
+          <div class="btn-row">
+            <button class="btn btn-sm" onclick="reload()">🔄 새로고침</button>
+            <button class="btn btn-sm btn-p" onclick="openMo('mo-in')">+ 입고</button>
+            <button class="btn btn-sm btn-ng" onclick="openMo('mo-out')">↑ 출고</button>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>상품명</th>
-                <th>ASIN / SKU</th>
-                <th class="text-right">재고 (pcs)</th>
-                <th class="text-right">최근 입고</th>
-                <th class="text-right">최근 출고</th>
-                <th>상태</th>
-              </tr>
-            </thead>
-            <tbody id="stock-table">
-              <tr><td colspan="6" class="text-center" style="padding: 32px; color: var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="tw"><table>
+          <thead><tr><th>상품명</th><th>ASIN / FNSKU</th><th class="tr">재고 (pcs)</th><th>상태</th></tr></thead>
+          <tbody id="tb-stock"></tbody>
+        </table></div>
       </div>
-
       <div class="card">
-        <div class="card-header">
-          <span class="card-title">최근 입출고 (20건)</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>날짜</th>
-                <th>구분</th>
-                <th>상품명</th>
-                <th class="text-right">수량</th>
-                <th class="text-right">잔여재고</th>
-                <th>비고</th>
-              </tr>
-            </thead>
-            <tbody id="recent-table">
-              <tr><td colspan="6" class="text-center" style="padding:32px; color:var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="card-hd"><span class="card-title">최근 입출고 (20건)</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>비고</th></tr></thead>
+          <tbody id="tb-recent"></tbody>
+        </table></div>
       </div>
     </div>
 
-    <!-- PRODUCTS PAGE -->
-    <div id="page-products" class="tab-panel">
-      <div class="page-header">
-        <div class="flex items-center gap-3" style="justify-content: space-between;">
-          <div>
-            <div class="page-title">상품 관리</div>
-            <div class="page-sub">케어젠 취급 상품 등록 및 관리</div>
-          </div>
-          <button class="btn btn-primary" onclick="openProductModal()">+ 상품 등록</button>
-        </div>
-      </div>
+    <!-- PRODUCTS -->
+    <div class="page" id="pg-products">
+      <div class="ph"><div class="ph-row">
+        <div><div class="ph-title">상품 관리</div><div class="ph-sub">케어젠 취급 상품</div></div>
+        <button class="btn btn-p" onclick="openMo('mo-prod')">+ 상품 등록</button>
+      </div></div>
       <div class="card">
-        <div class="card-header">
-          <span class="card-title">등록 상품 목록</span>
-          <input type="text" placeholder="상품명 검색..." style="width:220px; padding:6px 10px; font-size:12px;" oninput="filterProducts(this.value)">
+        <div class="card-hd">
+          <span class="card-title">등록 상품</span>
+          <input style="width:200px;padding:6px 10px;font-size:12px" placeholder="상품명 검색..." oninput="filterProds(this.value)">
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>상품명</th>
-                <th>ASIN</th>
-                <th>FNSKU</th>
-                <th>UPC</th>
-                <th class="text-right">현재 재고</th>
-                <th>최소 재고</th>
-                <th>등록일</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="products-table">
-              <tr><td colspan="8" class="text-center" style="padding:32px; color:var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="tw"><table>
+          <thead><tr><th>상품명</th><th>ASIN</th><th>FNSKU</th><th class="tr">현재 재고</th><th class="tr">최소 재고</th><th>비고</th><th></th></tr></thead>
+          <tbody id="tb-prods"></tbody>
+        </table></div>
       </div>
     </div>
 
-    <!-- INBOUND PAGE -->
-    <div id="page-inbound" class="tab-panel">
-      <div class="page-header">
-        <div class="flex items-center gap-3" style="justify-content: space-between;">
-          <div>
-            <div class="page-title">입고 처리</div>
-            <div class="page-sub">창고 입고 등록</div>
-          </div>
-          <button class="btn btn-primary" onclick="openInboundModal()">+ 입고 등록</button>
-        </div>
-      </div>
+    <!-- INBOUND -->
+    <div class="page" id="pg-inbound">
+      <div class="ph"><div class="ph-row">
+        <div><div class="ph-title">입고 처리</div><div class="ph-sub">창고 입고 등록</div></div>
+        <button class="btn btn-p" onclick="openMo('mo-in')">+ 입고 등록</button>
+      </div></div>
       <div class="card">
-        <div class="card-header">
+        <div class="card-hd">
           <span class="card-title">입고 내역</span>
-          <div class="filter-row">
-            <input type="date" id="filter-in-from" style="width:140px; padding:6px 10px; font-size:12px;">
-            <span class="text-muted text-sm">~</span>
-            <input type="date" id="filter-in-to" style="width:140px; padding:6px 10px; font-size:12px;">
-            <button class="btn btn-sm" onclick="loadInbound()">조회</button>
+          <div class="fr">
+            <input type="date" id="f-in-s" style="width:140px;padding:6px 10px;font-size:12px">
+            <span class="tx-h tx-sm">~</span>
+            <input type="date" id="f-in-e" style="width:140px;padding:6px 10px;font-size:12px">
+            <button class="btn btn-sm" onclick="loadIn()">조회</button>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>날짜</th>
-                <th>상품명</th>
-                <th class="text-right">수량 (pcs)</th>
-                <th>PLT/BOX</th>
-                <th>AWB / 참조번호</th>
-                <th>비고</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="inbound-table">
-              <tr><td colspan="7" class="text-center" style="padding:32px; color:var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="tw"><table>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
+          <tbody id="tb-in"></tbody>
+        </table></div>
       </div>
     </div>
 
-    <!-- OUTBOUND PAGE -->
-    <div id="page-outbound" class="tab-panel">
-      <div class="page-header">
-        <div class="flex items-center gap-3" style="justify-content: space-between;">
-          <div>
-            <div class="page-title">출고 처리</div>
-            <div class="page-sub">FBA 입고, B2C, 직배송 등 출고 등록</div>
-          </div>
-          <button class="btn btn-danger" onclick="openOutboundModal()">↑ 출고 등록</button>
-        </div>
-      </div>
+    <!-- OUTBOUND -->
+    <div class="page" id="pg-outbound">
+      <div class="ph"><div class="ph-row">
+        <div><div class="ph-title">출고 처리</div><div class="ph-sub">FBA · B2C · B2B 출고</div></div>
+        <button class="btn btn-ng" onclick="openMo('mo-out')">↑ 출고 등록</button>
+      </div></div>
       <div class="card">
-        <div class="card-header">
+        <div class="card-hd">
           <span class="card-title">출고 내역</span>
-          <div class="filter-row">
-            <input type="date" id="filter-out-from" style="width:140px; padding:6px 10px; font-size:12px;">
-            <span class="text-muted text-sm">~</span>
-            <input type="date" id="filter-out-to" style="width:140px; padding:6px 10px; font-size:12px;">
-            <select id="filter-out-type" style="width:130px; padding:6px 10px; font-size:12px;">
-              <option value="">전체 유형</option>
-              <option value="FBA">FBA 입고</option>
-              <option value="B2C">B2C 직배송</option>
-              <option value="B2B">B2B 출고</option>
-              <option value="REMOVAL">리무벌</option>
-              <option value="기타">기타</option>
+          <div class="fr">
+            <input type="date" id="f-out-s" style="width:140px;padding:6px 10px;font-size:12px">
+            <span class="tx-h tx-sm">~</span>
+            <input type="date" id="f-out-e" style="width:140px;padding:6px 10px;font-size:12px">
+            <select id="f-out-t" style="width:120px;padding:6px 10px;font-size:12px">
+              <option value="">전체</option>
+              <option>FBA</option><option>B2C</option><option>B2B</option><option>REMOVAL</option><option>기타</option>
             </select>
-            <button class="btn btn-sm" onclick="loadOutbound()">조회</button>
+            <button class="btn btn-sm" onclick="loadOut()">조회</button>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>날짜</th>
-                <th>상품명</th>
-                <th>유형</th>
-                <th class="text-right">수량 (pcs)</th>
-                <th>Tracking / Ref</th>
-                <th>비고</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="outbound-table">
-              <tr><td colspan="7" class="text-center" style="padding:32px; color:var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="tw"><table>
+          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>비고</th><th></th></tr></thead>
+          <tbody id="tb-out"></tbody>
+        </table></div>
       </div>
     </div>
 
-    <!-- HISTORY PAGE -->
-    <div id="page-history" class="tab-panel">
-      <div class="page-header">
-        <div class="page-title">입출고 통합 내역</div>
-        <div class="page-sub">전체 입출고 트랜잭션 조회</div>
-      </div>
+    <!-- HISTORY -->
+    <div class="page" id="pg-history">
+      <div class="ph"><div class="ph-title">입출고 통합 내역</div><div class="ph-sub">전체 트랜잭션</div></div>
       <div class="card">
-        <div class="card-header">
+        <div class="card-hd">
           <span class="card-title">전체 내역</span>
-          <div class="filter-row">
-            <input type="text" id="filter-hist-product" placeholder="상품명" style="width:180px; padding:6px 10px; font-size:12px;" oninput="loadHistory()">
-            <select id="filter-hist-type" style="width:100px; padding:6px 10px; font-size:12px;" onchange="loadHistory()">
-              <option value="">전체</option>
-              <option value="입고">입고</option>
-              <option value="출고">출고</option>
+          <div class="fr">
+            <input style="width:160px;padding:6px 10px;font-size:12px" placeholder="상품명" id="f-h-p" oninput="loadHist()">
+            <select id="f-h-t" style="width:90px;padding:6px 10px;font-size:12px" onchange="loadHist()">
+              <option value="">전체</option><option>입고</option><option>출고</option>
             </select>
             <button class="btn btn-sm" onclick="exportCSV()">📥 CSV</button>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>날짜</th>
-                <th>구분</th>
-                <th>상품명</th>
-                <th class="text-right">수량</th>
-                <th class="text-right">잔여재고</th>
-                <th>유형</th>
-                <th>Tracking</th>
-                <th>비고</th>
-              </tr>
-            </thead>
-            <tbody id="history-table">
-              <tr><td colspan="8" class="text-center" style="padding:32px; color:var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="tw"><table>
+          <thead><tr><th>날짜</th><th>구분</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>비고</th></tr></thead>
+          <tbody id="tb-hist"></tbody>
+        </table></div>
       </div>
     </div>
 
-    <!-- REMOVALS PAGE -->
-    <div id="page-removals" class="tab-panel">
-      <div class="page-header">
-        <div class="flex items-center gap-3" style="justify-content: space-between;">
-          <div>
-            <div class="page-title">리무벌 관리</div>
-            <div class="page-sub">Amazon FBA 리무벌 오더 추적</div>
-          </div>
-          <button class="btn btn-primary" onclick="openRemovalModal()">+ 리무벌 등록</button>
-        </div>
-      </div>
+    <!-- REMOVALS -->
+    <div class="page" id="pg-removals">
+      <div class="ph"><div class="ph-row">
+        <div><div class="ph-title">리무벌 관리</div><div class="ph-sub">FBA Removal Order 추적</div></div>
+        <button class="btn btn-p" onclick="openMo('mo-rm')">+ 리무벌 등록</button>
+      </div></div>
       <div class="card">
-        <div class="card-header">
-          <span class="card-title">리무벌 현황</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>오더일</th>
-                <th>상품명</th>
-                <th class="text-right">출고수량</th>
-                <th>Tracking Number</th>
-                <th class="text-right">CA 입고수량</th>
-                <th>CA 입고일</th>
-                <th>상태</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="removals-table">
-              <tr><td colspan="8" class="text-center" style="padding:32px; color:var(--text-hint);">
-                <div class="spinner" style="margin: 0 auto;"></div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="card-hd"><span class="card-title">리무벌 현황</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>오더일</th><th>상품명</th><th class="tr">출고수량</th><th>Tracking</th><th class="tr">CA 입고</th><th>CA 입고일</th><th>상태</th><th></th></tr></thead>
+          <tbody id="tb-rm"></tbody>
+        </table></div>
       </div>
     </div>
 
@@ -766,202 +266,85 @@
 </div>
 
 <!-- MODALS -->
-
-<!-- 상품 등록 모달 -->
-<div class="modal-overlay hidden" id="modal-product">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title">상품 등록</span>
-      <button class="modal-close" onclick="closeModal('modal-product')">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group span2">
-          <label>상품명 *</label>
-          <input type="text" id="p-name" placeholder="예: Korglutide 3g * 30 pcs">
-        </div>
-        <div class="form-group">
-          <label>ASIN</label>
-          <input type="text" id="p-asin" placeholder="B0XXXXXXXXX">
-        </div>
-        <div class="form-group">
-          <label>FNSKU</label>
-          <input type="text" id="p-fnsku" placeholder="X00XXXXXXXXX">
-        </div>
-        <div class="form-group">
-          <label>UPC</label>
-          <input type="text" id="p-upc">
-        </div>
-        <div class="form-group">
-          <label>최소 재고 알림 (pcs)</label>
-          <input type="number" id="p-minstock" value="500" min="0">
-        </div>
-        <div class="form-group span2">
-          <label>비고</label>
-          <textarea id="p-note" placeholder="1BOX = 126개 등 패키지 정보"></textarea>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-product')">취소</button>
-      <button class="btn btn-primary" onclick="saveProduct()">저장</button>
-    </div>
+<div class="mo hide" id="mo-prod">
+  <div class="mo-box">
+    <div class="mo-hd"><span class="mo-title">상품 등록</span><button class="mo-x" onclick="closeMo('mo-prod')">×</button></div>
+    <div class="mo-bd"><div class="g2">
+      <div class="fg s2"><label>상품명 *</label><input id="p-name" placeholder="예: Korglutide 3g * 30 pcs"></div>
+      <div class="fg"><label>ASIN</label><input id="p-asin" placeholder="B0XXXXXXXXX"></div>
+      <div class="fg"><label>FNSKU</label><input id="p-fnsku" placeholder="X00XXXXXXXXX"></div>
+      <div class="fg"><label>UPC</label><input id="p-upc"></div>
+      <div class="fg"><label>최소 재고 알림 (pcs)</label><input type="number" id="p-min" value="500" min="0"></div>
+      <div class="fg s2"><label>비고</label><textarea id="p-note"></textarea></div>
+    </div></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-prod')">취소</button><button class="btn btn-p" onclick="saveProd()">저장</button></div>
   </div>
 </div>
 
-<!-- 입고 등록 모달 -->
-<div class="modal-overlay hidden" id="modal-inbound">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title">입고 등록</span>
-      <button class="modal-close" onclick="closeModal('modal-inbound')">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group">
-          <label>날짜 *</label>
-          <input type="date" id="in-date">
-        </div>
-        <div class="form-group">
-          <label>상품 *</label>
-          <select id="in-product">
-            <option value="">상품 선택...</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>수량 (pcs) *</label>
-          <input type="number" id="in-qty" min="1" placeholder="0">
-        </div>
-        <div class="form-group">
-          <label>PLT / BOX 구성</label>
-          <input type="text" id="in-pltbox" placeholder="예: 6PLT (72BOX)">
-        </div>
-        <div class="form-group span2">
-          <label>AWB / 참조번호</label>
-          <input type="text" id="in-awb" placeholder="MAWB 또는 HAWB">
-        </div>
-        <div class="form-group span2">
-          <label>비고 / 특이사항</label>
-          <textarea id="in-note" placeholder="예: #48 박스만 46개"></textarea>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-inbound')">취소</button>
-      <button class="btn btn-primary" onclick="saveInbound()">입고 저장</button>
-    </div>
+<div class="mo hide" id="mo-in">
+  <div class="mo-box">
+    <div class="mo-hd"><span class="mo-title">입고 등록</span><button class="mo-x" onclick="closeMo('mo-in')">×</button></div>
+    <div class="mo-bd"><div class="g2">
+      <div class="fg"><label>날짜 *</label><input type="date" id="i-date"></div>
+      <div class="fg"><label>상품 *</label><select id="i-prod"></select></div>
+      <div class="fg"><label>수량 (pcs) *</label><input type="number" id="i-qty" min="1" placeholder="0"></div>
+      <div class="fg"><label>PLT / BOX 구성</label><input id="i-plt" placeholder="6PLT (72BOX)"></div>
+      <div class="fg s2"><label>AWB / 참조번호</label><input id="i-awb" placeholder="MAWB 또는 HAWB"></div>
+      <div class="fg s2"><label>비고</label><textarea id="i-note"></textarea></div>
+    </div></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-in')">취소</button><button class="btn btn-p" onclick="saveIn()">입고 저장</button></div>
   </div>
 </div>
 
-<!-- 출고 등록 모달 -->
-<div class="modal-overlay hidden" id="modal-outbound">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title">출고 등록</span>
-      <button class="modal-close" onclick="closeModal('modal-outbound')">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group">
-          <label>날짜 *</label>
-          <input type="date" id="out-date">
-        </div>
-        <div class="form-group">
-          <label>상품 *</label>
-          <select id="out-product">
-            <option value="">상품 선택...</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>수량 (pcs) *</label>
-          <input type="number" id="out-qty" min="1" placeholder="0">
-        </div>
-        <div class="form-group">
-          <label>출고 유형 *</label>
-          <select id="out-type">
-            <option value="FBA">FBA 입고</option>
-            <option value="B2C">B2C 직배송</option>
-            <option value="B2B">B2B 출고</option>
-            <option value="REMOVAL">리무벌</option>
-            <option value="기타">기타</option>
-          </select>
-        </div>
-        <div class="form-group span2">
-          <label>Tracking / Shipment ID</label>
-          <input type="text" id="out-tracking" placeholder="FBA Shipment ID 또는 Tracking Number">
-        </div>
-        <div class="form-group span2">
-          <label>비고</label>
-          <textarea id="out-note" placeholder="10BOX 아마존 FBA 입고 등"></textarea>
-        </div>
+<div class="mo hide" id="mo-out">
+  <div class="mo-box">
+    <div class="mo-hd"><span class="mo-title">출고 등록</span><button class="mo-x" onclick="closeMo('mo-out')">×</button></div>
+    <div class="mo-bd"><div class="g2">
+      <div class="fg"><label>날짜 *</label><input type="date" id="o-date"></div>
+      <div class="fg"><label>상품 *</label><select id="o-prod" onchange="showSib()"></select></div>
+      <div class="fg"><label>수량 (pcs) *</label><input type="number" id="o-qty" min="1" placeholder="0"></div>
+      <div class="fg"><label>출고 유형 *</label>
+        <select id="o-type">
+          <option value="FBA">FBA 입고</option><option value="B2C">B2C 직배송</option>
+          <option value="B2B">B2B 출고</option><option value="REMOVAL">리무벌</option><option value="기타">기타</option>
+        </select>
       </div>
-      <div id="out-stock-info" style="margin-top:12px; padding:10px 14px; background:var(--surface2); border-radius:var(--radius); font-size:12px; display:none;">
-        현재 재고: <strong id="out-current-stock">—</strong> pcs
-      </div>
+      <div class="fg s2"><label>Tracking / Shipment ID</label><input id="o-track" placeholder="FBA Shipment ID 또는 Tracking No."></div>
+      <div class="fg s2"><label>비고</label><textarea id="o-note"></textarea></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-outbound')">취소</button>
-      <button class="btn btn-danger" onclick="saveOutbound()">출고 저장</button>
+    <div class="sib" id="o-sib" style="display:none">현재 재고: <strong id="o-cur">—</strong> pcs</div>
     </div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-out')">취소</button><button class="btn btn-ng" onclick="saveOut()">출고 저장</button></div>
   </div>
 </div>
 
-<!-- 리무벌 등록 모달 -->
-<div class="modal-overlay hidden" id="modal-removal">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title">리무벌 오더 등록</span>
-      <button class="modal-close" onclick="closeModal('modal-removal')">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group">
-          <label>리무벌 오더 날짜 *</label>
-          <input type="date" id="rm-date">
-        </div>
-        <div class="form-group">
-          <label>상품명 *</label>
-          <input type="text" id="rm-product" placeholder="상품명 직접 입력">
-        </div>
-        <div class="form-group">
-          <label>출고 수량 *</label>
-          <input type="number" id="rm-qty" min="1">
-        </div>
-        <div class="form-group">
-          <label>Tracking Number</label>
-          <input type="text" id="rm-tracking">
-        </div>
-        <div class="form-group">
-          <label>CA 입고 수량</label>
-          <input type="number" id="rm-ca-qty" min="0">
-        </div>
-        <div class="form-group">
-          <label>CA 입고일</label>
-          <input type="date" id="rm-ca-date">
-        </div>
-        <div class="form-group span2">
-          <label>비고</label>
-          <textarea id="rm-note"></textarea>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-removal')">취소</button>
-      <button class="btn btn-primary" onclick="saveRemoval()">저장</button>
-    </div>
+<div class="mo hide" id="mo-rm">
+  <div class="mo-box">
+    <div class="mo-hd"><span class="mo-title">리무벌 오더 등록</span><button class="mo-x" onclick="closeMo('mo-rm')">×</button></div>
+    <div class="mo-bd"><div class="g2">
+      <div class="fg"><label>오더 날짜 *</label><input type="date" id="r-date"></div>
+      <div class="fg"><label>상품명 *</label><input id="r-prod" placeholder="상품명 직접 입력"></div>
+      <div class="fg"><label>출고 수량 *</label><input type="number" id="r-qty" min="1"></div>
+      <div class="fg"><label>Tracking Number</label><input id="r-track"></div>
+      <div class="fg"><label>CA 입고 수량</label><input type="number" id="r-caqty" min="0"></div>
+      <div class="fg"><label>CA 입고일</label><input type="date" id="r-cadate"></div>
+      <div class="fg s2"><label>비고</label><textarea id="r-note"></textarea></div>
+    </div></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-rm')">취소</button><button class="btn btn-p" onclick="saveRm()">저장</button></div>
   </div>
 </div>
 
-<div id="toast-container"></div>
+<div id="toast"></div>
 
-<!-- Firebase SDK -->
 <script type="module">
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-// Your web app's Firebase configuration
-const firebaseConfig = {
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js';
+import {
+  getFirestore, collection, doc, setDoc, addDoc, getDocs,
+  updateDoc, deleteDoc, query, orderBy, where, limit,
+  serverTimestamp, getDoc
+} from 'https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js';
+
+const FB_CFG = {
   apiKey: "AIzaSyB8JNymKcTVkU1VGmsU8rcIY3FFRGWuMMo",
   authDomain: "enoamdwms-carezen.firebaseapp.com",
   projectId: "enoamdwms-carezen",
@@ -969,637 +352,367 @@ const firebaseConfig = {
   messagingSenderId: "701934733796",
   appId: "1:701934733796:web:9be1a7126783d2f6ee1ff1"
 };
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
 
-// ============================================================
-// SEED DATA — 케어젠 기존 재고 (최초 1회만 실행)
-// 로컬 스토리지로 중복 방지
-// ============================================================
-const SEED_DATA = {
-  products: [
-    {
-      name: "Korglutide 3g * 30 pcs",
-      asin: "",
-      fnsku: "",
-      upc: "",
-      minStock: 500,
-      currentStock: 2799,
-      note: "1BOX = 126개 / 6PLT = 72BOX",
-      createdAt: new Date("2026-02-02")
-    },
-    {
-      name: "DR.CYJ Intensive Hair Mask",
-      asin: "",
-      fnsku: "",
-      upc: "",
-      minStock: 10,
-      currentStock: 0,
-      note: "",
-      createdAt: new Date("2026-02-07")
-    },
-    {
-      name: "Dermaheal Vitalizing Serum",
-      asin: "",
-      fnsku: "",
-      upc: "",
-      minStock: 10,
-      currentStock: 0,
-      note: "",
-      createdAt: new Date("2026-02-07")
-    }
-  ],
-  transactions: [
-    { date:"2026-02-02", type:"입고", product:"Korglutide 3g * 30 pcs", qty:8992, balance:8992, txType:"입고", tracking:"", note:"6PLT (72BOX) / 1BOX = 126개 / #48 박스만 46개" },
-    { date:"2026-02-02", type:"출고", product:"Korglutide 3g * 30 pcs", qty:1512, balance:7480, txType:"FBA", tracking:"", note:"도착 후 1PLT(12BOX) 출고" },
-    { date:"2026-02-05", type:"출고", product:"Korglutide 3g * 30 pcs", qty:3024, balance:4456, txType:"FBA", tracking:"", note:"2PLT (24BOX) 출고" },
-    { date:"2026-02-06", type:"출고", product:"Korglutide 3g * 30 pcs", qty:378,  balance:4078, txType:"FBA", tracking:"", note:"3BOX 출고" },
-    { date:"2026-02-12", type:"출고", product:"Korglutide 3g * 30 pcs", qty:19,   balance:4059, txType:"B2C", tracking:"", note:"한국향 B2C 개별 발송 18건(1개씩 17건, 2개 1건) / ACI 통해 픽업 진행" },
-    { date:"2026-06-04", type:"출고", product:"Korglutide 3g * 30 pcs", qty:1260, balance:2799, txType:"FBA", tracking:"", note:"10BOX 아마존 FBA 입고" },
-  ],
-  removals: [
-    { date:"2026-02-07", product:"DR.CYJ Intensive Hair Mask",  outQty:2, tracking:"9300189685000682633906 (USPS_FIRST_CLASS_PARCEL)", caQty:2, caDate:"2026-02-18", note:"" },
-    { date:"2026-02-07", product:"Dermaheal Vitalizing Serum",  outQty:1, tracking:"9361289711060830392101 (USPS_ATS_STD)",          caQty:1, caDate:"2026-02-18", note:"" },
-    { date:"2026-02-07", product:"Dermaheal Vitalizing Serum",  outQty:1, tracking:"TBA328491109125 (AMZL_US_PREMIUM)",             caQty:0, caDate:"",           note:"미입고" },
-    { date:"2026-02-27", product:"Dermaheal Vitalizing Serum",  outQty:1, tracking:"9200190261248498323098 (USPS_FIRST_CLASS_PARCEL)", caQty:1, caDate:"2026-02-18", note:"" },
-    { date:"2026-02-19", product:"DR.CYJ Intensive Hair Mask",  outQty:1, tracking:"9200190261250399387017 (USPS_FIRST_CLASS_PARCEL)", caQty:0, caDate:"",           note:"미입고" },
-    { date:"2026-03-02", product:"Dermaheal Vitalizing Serum",  outQty:1, tracking:"930018965000686819286 (USPS_FIRST_CLASS_PARCEL)",  caQty:1, caDate:"2026-03-02", note:"" },
-    { date:"2026-03-31", product:"DR.CYJ Intensive Hair Mask",  outQty:1, tracking:"9200190261250399387017",                         caQty:1, caDate:"2026-03-27", note:"" },
-  ]
-};
+// 고정 ID로 product 관리 → seed 중복 원천 차단
+const SEED_PRODS = [
+  { id:'kor-3g-30', name:'Korglutide 3g * 30 pcs',      asin:'', fnsku:'', upc:'', minStock:500, currentStock:2799, note:'1BOX = 126개 / 6PLT = 72BOX' },
+  { id:'cyj-hair',  name:'DR.CYJ Intensive Hair Mask',   asin:'', fnsku:'', upc:'', minStock:10,  currentStock:0,    note:'' },
+  { id:'dhl-ser',   name:'Dermaheal Vitalizing Serum',   asin:'', fnsku:'', upc:'', minStock:10,  currentStock:0,    note:'' },
+];
+const SEED_TXS = [
+  { date:'2026-02-02', type:'입고', product:'Korglutide 3g * 30 pcs', qty:8992, balance:8992, txType:'입고', pltbox:'6PLT (72BOX)', tracking:'', note:'1BOX = 126개 / #48 박스만 46개' },
+  { date:'2026-02-02', type:'출고', product:'Korglutide 3g * 30 pcs', qty:1512, balance:7480, txType:'FBA',  pltbox:'1PLT (12BOX)', tracking:'', note:'도착 후 1PLT(12BOX) 출고' },
+  { date:'2026-02-05', type:'출고', product:'Korglutide 3g * 30 pcs', qty:3024, balance:4456, txType:'FBA',  pltbox:'2PLT (24BOX)', tracking:'', note:'2PLT (24BOX) 출고' },
+  { date:'2026-02-06', type:'출고', product:'Korglutide 3g * 30 pcs', qty:378,  balance:4078, txType:'FBA',  pltbox:'3BOX',         tracking:'', note:'3BOX 출고' },
+  { date:'2026-02-12', type:'출고', product:'Korglutide 3g * 30 pcs', qty:19,   balance:4059, txType:'B2C',  pltbox:'',             tracking:'', note:'한국향 B2C 개별 발송 18건 / ACI 통해 픽업 진행' },
+  { date:'2026-06-04', type:'출고', product:'Korglutide 3g * 30 pcs', qty:1260, balance:2799, txType:'FBA',  pltbox:'10BOX',        tracking:'', note:'10BOX 아마존 FBA 입고' },
+];
+const SEED_RMS = [
+  { date:'2026-02-07', product:'DR.CYJ Intensive Hair Mask', outQty:2, tracking:'9300189685000682633906 (USPS_FIRST_CLASS_PARCEL)', caQty:2, caDate:'2026-02-18', note:'' },
+  { date:'2026-02-07', product:'Dermaheal Vitalizing Serum', outQty:1, tracking:'9361289711060830392101 (USPS_ATS_STD)',            caQty:1, caDate:'2026-02-18', note:'' },
+  { date:'2026-02-07', product:'Dermaheal Vitalizing Serum', outQty:1, tracking:'TBA328491109125 (AMZL_US_PREMIUM)',               caQty:0, caDate:'', note:'미입고' },
+  { date:'2026-02-27', product:'Dermaheal Vitalizing Serum', outQty:1, tracking:'9200190261248498323098 (USPS_FIRST_CLASS_PARCEL)', caQty:1, caDate:'2026-02-18', note:'' },
+  { date:'2026-02-19', product:'DR.CYJ Intensive Hair Mask', outQty:1, tracking:'9200190261250399387017 (USPS_FIRST_CLASS_PARCEL)', caQty:0, caDate:'', note:'미입고' },
+  { date:'2026-03-02', product:'Dermaheal Vitalizing Serum', outQty:1, tracking:'930018965000686819286 (USPS_FIRST_CLASS_PARCEL)',  caQty:1, caDate:'2026-03-02', note:'' },
+  { date:'2026-03-31', product:'DR.CYJ Intensive Hair Mask', outQty:1, tracking:'9200190261250399387017',                         caQty:1, caDate:'2026-03-27', note:'' },
+];
 
-let app, db;
-let products = [];
-let SEEDED = false;
+let db, prods = [];
 
+// ── 상태 표시 ────────────────────────────────────────────────
+function setFbStatus(msg, state) {
+  document.getElementById('fb-msg').textContent = msg;
+  const d = document.getElementById('fb-dot');
+  d.className = 'dot' + (state ? ' '+state : '');
+}
+
+// ── 초기화 ──────────────────────────────────────────────────
+setFbStatus('Firebase 초기화 중...', '');
 try {
-  app = initializeApp(firebaseConfig);
+  const app = initializeApp(FB_CFG);
   db = getFirestore(app);
-  document.getElementById('firebase-status').textContent = 'Firebase 연결됨';
-  document.getElementById('firebase-status').style.color = 'var(--success)';
+  setFbStatus('Firestore 연결 확인 중...', 'wn');
 
-  window._db = db;
-  window._firebase = { collection, doc, addDoc, getDocs, updateDoc, deleteDoc, query, orderBy, where, limit, Timestamp, serverTimestamp, getDoc };
+  // _meta/seeded 존재 여부로 seed 체크 (localStorage 대신)
+  const metaRef = doc(db, '_meta', 'seeded');
+  let metaSnap;
+  try {
+    metaSnap = await getDoc(metaRef);
+  } catch(e) {
+    throw new Error('Firestore 읽기 실패 — Rules 확인 필요: ' + e.message);
+  }
 
-  await seedIfNeeded();
-  await refreshAll();
+  if (!metaSnap.exists()) {
+    setFbStatus('초기 데이터 적재 중...', 'wn');
+
+    // products: 고정 ID로 setDoc → 중복 없음
+    for (const p of SEED_PRODS) {
+      const { id, ...data } = p;
+      await setDoc(doc(db, 'products', id), { ...data, createdAt: serverTimestamp() });
+    }
+    // transactions: 기존 것 모두 삭제 후 재적재
+    const oldTx = await getDocs(collection(db, 'transactions'));
+    for (const d of oldTx.docs) await deleteDoc(d.ref);
+    for (const t of SEED_TXS) {
+      await addDoc(collection(db, 'transactions'), { ...t, createdAt: serverTimestamp() });
+    }
+    // removals: 기존 것 모두 삭제 후 재적재
+    const oldRm = await getDocs(collection(db, 'removals'));
+    for (const d of oldRm.docs) await deleteDoc(d.ref);
+    for (const r of SEED_RMS) {
+      await addDoc(collection(db, 'removals'), { ...r, createdAt: serverTimestamp() });
+    }
+    // 시드 완료 마킹
+    await setDoc(metaRef, { seededAt: serverTimestamp(), v: 1 });
+    toast('케어젠 기초 데이터 적재 완료', 'ok');
+  }
+
+  setFbStatus('연결됨', 'ok');
+  await reload();
 
 } catch(e) {
   console.error(e);
-  document.getElementById('firebase-status').textContent = 'Firebase 설정 필요';
-  document.getElementById('firebase-status').style.color = 'var(--danger)';
-  showAlert('⚠️ Firebase 설정이 필요합니다. firebaseConfig를 실제 프로젝트 설정으로 교체해주세요.', 'warning');
-  loadDemoData();
+  setFbStatus('오류: ' + e.message, 'ng');
+  toast('Firebase 오류 — F12 콘솔 확인: ' + e.message, 'ng');
 }
 
-// ============================================================
-// SEED
-// ============================================================
-async function seedIfNeeded() {
-  if (localStorage.getItem('caregen-wms-seeded')) return;
-  try {
-    // Products
-    for (const p of SEED_DATA.products) {
-      await addDoc(collection(db, 'products'), { ...p, createdAt: Timestamp.fromDate(p.createdAt) });
-    }
-    // Transactions
-    for (const t of SEED_DATA.transactions) {
-      await addDoc(collection(db, 'transactions'), { ...t, createdAt: serverTimestamp(), date: t.date });
-    }
-    // Removals
-    for (const r of SEED_DATA.removals) {
-      await addDoc(collection(db, 'removals'), { ...r, createdAt: serverTimestamp() });
-    }
-    localStorage.setItem('caregen-wms-seeded', '1');
-    showToast('기존 재고 데이터가 로드되었습니다.', 'success');
-  } catch(e) {
-    console.error('Seed error', e);
-  }
-}
-
-// ============================================================
-// LOAD ALL DATA
-// ============================================================
-window.refreshAll = async function() {
-  await loadProducts();
-  await loadDashboard();
-  await loadHistory();
-  document.getElementById('last-updated').textContent = new Date().toLocaleString('ko-KR');
+// ── RELOAD ───────────────────────────────────────────────────
+window.reload = async function() {
+  await loadProds();
+  await loadDash();
+  document.getElementById('up-at').textContent = new Date().toLocaleString('ko-KR');
 };
 
-async function loadProducts() {
-  const snap = await getDocs(query(collection(db, 'products'), orderBy('name')));
-  products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  window._products = products;
-  renderProducts();
-  renderStockTable();
-  populateProductSelects();
+// ── PRODUCTS ─────────────────────────────────────────────────
+async function loadProds() {
+  const snap = await getDocs(query(collection(db,'products'), orderBy('name')));
+  prods = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  window._prods = prods;
+  renderProds();
+  fillSels();
 }
 
-function renderProducts() {
-  const q = (document.getElementById('filter-prod-search') || { value:'' }).value.toLowerCase();
-  const rows = products.filter(p => p.name.toLowerCase().includes(q)).map(p => `
-    <tr class="${p.currentStock <= p.minStock ? 'low-stock' : ''}">
-      <td class="fw500">${p.name}</td>
-      <td class="mono text-sm">${p.asin || '—'}</td>
-      <td class="mono text-sm">${p.fnsku || '—'}</td>
-      <td class="mono text-sm">${p.upc || '—'}</td>
-      <td class="text-right">
-        <span class="stock-pill ${p.currentStock <= p.minStock ? 'badge-warn' : 'badge-brand'}">${p.currentStock.toLocaleString()}</span>
-      </td>
-      <td class="text-right text-muted">${(p.minStock||0).toLocaleString()}</td>
-      <td class="text-sm text-muted">${formatDate(p.createdAt)}</td>
-      <td class="text-right">
-        <button class="btn btn-sm" onclick="editProduct('${p.id}')">수정</button>
-      </td>
-    </tr>
-  `).join('');
-  document.getElementById('products-table').innerHTML = rows || emptyRow(8, '등록된 상품이 없습니다.');
+function renderProds(f='') {
+  const fl = f.toLowerCase();
+  const rows = prods.filter(p => p.name.toLowerCase().includes(fl)).map(p => `
+    <tr class="${p.currentStock<=(p.minStock||0)?'ls':''}">
+      <td class="fw5">${p.name}</td>
+      <td class="mono tx-sm">${p.asin||'—'}</td>
+      <td class="mono tx-sm">${p.fnsku||'—'}</td>
+      <td class="tr"><span class="sp ${p.currentStock<=(p.minStock||0)?'b-wn':'b-br'}">${p.currentStock.toLocaleString()}</span></td>
+      <td class="tr tx-m">${(p.minStock||0).toLocaleString()}</td>
+      <td class="tx-sm tx-m ellip">${p.note||''}</td>
+      <td><button class="btn btn-sm" onclick="editProd('${p.id}')">수정</button></td>
+    </tr>`).join('');
+  document.getElementById('tb-prods').innerHTML = rows || empty(7,'등록된 상품 없음');
+}
+window.filterProds = v => renderProds(v);
+
+function fillSels() {
+  ['i-prod','o-prod'].forEach(id => {
+    const el = document.getElementById(id), cur = el.value;
+    el.innerHTML = '<option value="">상품 선택...</option>' +
+      prods.map(p => `<option ${p.name===cur?'selected':''} value="${p.name}">${p.name} (${p.currentStock.toLocaleString()} pcs)</option>`).join('');
+  });
 }
 
-function renderStockTable() {
-  const rows = products.map(p => `
+// ── DASHBOARD ────────────────────────────────────────────────
+async function loadDash() {
+  const ms = new Date(); 
+  const monthStr = new Date(ms.getFullYear(), ms.getMonth(), 1).toISOString().slice(0,10);
+  const snap = await getDocs(query(collection(db,'transactions'), orderBy('date','desc'), limit(20)));
+  const txs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+
+  const tot  = prods.reduce((s,p) => s+(p.currentStock||0), 0);
+  const mIn  = txs.filter(t => t.type==='입고' && t.date>=monthStr).reduce((s,t)=>s+t.qty,0);
+  const mOut = txs.filter(t => t.type==='출고' && t.date>=monthStr).reduce((s,t)=>s+t.qty,0);
+
+  document.getElementById('m-sku').textContent  = prods.length;
+  document.getElementById('m-tot').textContent  = tot.toLocaleString();
+  document.getElementById('m-in').textContent   = mIn.toLocaleString();
+  document.getElementById('m-out').textContent  = mOut.toLocaleString();
+
+  document.getElementById('tb-stock').innerHTML = prods.map(p => `
     <tr>
-      <td class="fw500">${p.name}</td>
-      <td class="mono text-sm text-muted">${p.asin || '—'}</td>
-      <td class="text-right">
-        <span class="stock-pill ${p.currentStock <= (p.minStock||0) ? 'badge-warn' : 'badge-brand'}" style="font-size:13px;">
-          ${p.currentStock.toLocaleString()}
-        </span>
-      </td>
-      <td class="text-right text-sm text-muted">—</td>
-      <td class="text-right text-sm text-muted">—</td>
-      <td>${p.currentStock <= (p.minStock||0) ? '<span class="badge badge-warn">부족</span>' : '<span class="badge badge-in">정상</span>'}</td>
-    </tr>
-  `).join('');
-  document.getElementById('stock-table').innerHTML = rows || emptyRow(6, '상품 없음');
-}
+      <td class="fw5">${p.name}</td>
+      <td class="mono tx-sm tx-m">${p.asin||'—'}</td>
+      <td class="tr"><span class="sp ${p.currentStock<=(p.minStock||0)?'b-wn':'b-br'}" style="font-size:14px">${p.currentStock.toLocaleString()}</span></td>
+      <td>${p.currentStock<=(p.minStock||0)?'<span class="badge b-wn">재고 부족</span>':'<span class="badge b-in">정상</span>'}</td>
+    </tr>`).join('') || empty(4,'상품 없음');
 
-async function loadDashboard() {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-
-  const snap = await getDocs(query(collection(db, 'transactions'), orderBy('date', 'desc'), limit(20)));
-  const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-  // metrics
-  const totalStock = products.reduce((s,p) => s + (p.currentStock||0), 0);
-  const monthIn = all.filter(t => t.type === '입고' && t.date >= monthStart).reduce((s,t) => s + t.qty, 0);
-  const monthOut = all.filter(t => t.type === '출고' && t.date >= monthStart).reduce((s,t) => s + t.qty, 0);
-
-  document.getElementById('m-sku').textContent = products.length;
-  document.getElementById('m-total').textContent = totalStock.toLocaleString();
-  document.getElementById('m-in').textContent = monthIn.toLocaleString();
-  document.getElementById('m-out').textContent = monthOut.toLocaleString();
-
-  // recent table
-  const rows = all.slice(0,20).map(t => `
+  document.getElementById('tb-recent').innerHTML = txs.map(t => `
     <tr>
-      <td class="text-sm">${t.date}</td>
-      <td><span class="badge ${t.type==='입고' ? 'badge-in' : 'badge-out'}">${t.type}</span></td>
+      <td class="tx-sm">${t.date}</td>
+      <td><span class="badge ${t.type==='입고'?'b-in':'b-out'}">${t.type}</span></td>
       <td>${t.product}</td>
-      <td class="text-right mono">${t.qty.toLocaleString()}</td>
-      <td class="text-right mono">${(t.balance||0).toLocaleString()}</td>
-      <td class="text-sm text-muted" style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${t.note||''}</td>
-    </tr>
-  `).join('');
-  document.getElementById('recent-table').innerHTML = rows || emptyRow(6, '내역 없음');
+      <td class="tr mono">${t.qty.toLocaleString()}</td>
+      <td class="tr mono">${(t.balance||0).toLocaleString()}</td>
+      <td class="tx-sm tx-m ellip">${t.note||''}</td>
+    </tr>`).join('') || empty(6,'내역 없음');
 }
 
-async function loadHistory() {
-  const pf = document.getElementById('filter-hist-product')?.value?.toLowerCase() || '';
-  const tf = document.getElementById('filter-hist-type')?.value || '';
+// ── INBOUND ──────────────────────────────────────────────────
+window.loadIn = async function() {
+  const s = document.getElementById('f-in-s').value;
+  const e = document.getElementById('f-in-e').value;
+  const snap = await getDocs(query(collection(db,'transactions'), where('type','==','입고'), orderBy('date','desc')));
+  let rows = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  if (s) rows = rows.filter(r => r.date>=s);
+  if (e) rows = rows.filter(r => r.date<=e);
+  document.getElementById('tb-in').innerHTML = rows.map(r => `
+    <tr><td>${r.date}</td><td class="fw5">${r.product}</td>
+    <td class="tr mono">${r.qty.toLocaleString()}</td>
+    <td class="tx-sm">${r.pltbox||''}</td>
+    <td class="mono tx-sm ellip">${r.tracking||''}</td>
+    <td class="tx-sm tx-m">${r.note||''}</td>
+    <td><button class="btn btn-sm btn-ng" onclick="delTx('${r.id}')">삭제</button></td></tr>`
+  ).join('') || empty(7,'입고 내역 없음');
+};
 
-  let q = query(collection(db, 'transactions'), orderBy('date', 'desc'));
-  const snap = await getDocs(q);
-  let all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+// ── OUTBOUND ─────────────────────────────────────────────────
+window.loadOut = async function() {
+  const s = document.getElementById('f-out-s').value;
+  const e = document.getElementById('f-out-e').value;
+  const t = document.getElementById('f-out-t').value;
+  const snap = await getDocs(query(collection(db,'transactions'), where('type','==','출고'), orderBy('date','desc')));
+  let rows = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  if (s) rows = rows.filter(r => r.date>=s);
+  if (e) rows = rows.filter(r => r.date<=e);
+  if (t) rows = rows.filter(r => r.txType===t);
+  document.getElementById('tb-out').innerHTML = rows.map(r => `
+    <tr><td>${r.date}</td><td class="fw5">${r.product}</td>
+    <td><span class="badge b-br" style="font-size:10px">${r.txType||''}</span></td>
+    <td class="tr mono">${r.qty.toLocaleString()}</td>
+    <td class="mono tx-sm ellip">${r.tracking||''}</td>
+    <td class="tx-sm tx-m">${r.note||''}</td>
+    <td><button class="btn btn-sm btn-ng" onclick="delTx('${r.id}')">삭제</button></td></tr>`
+  ).join('') || empty(7,'출고 내역 없음');
+};
 
-  if (pf) all = all.filter(t => t.product.toLowerCase().includes(pf));
-  if (tf) all = all.filter(t => t.type === tf);
+// ── HISTORY ──────────────────────────────────────────────────
+window.loadHist = async function() {
+  const pf = document.getElementById('f-h-p')?.value?.toLowerCase()||'';
+  const tf = document.getElementById('f-h-t')?.value||'';
+  const snap = await getDocs(query(collection(db,'transactions'), orderBy('date','desc')));
+  let rows = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  if (pf) rows = rows.filter(r => r.product.toLowerCase().includes(pf));
+  if (tf) rows = rows.filter(r => r.type===tf);
+  window._hist = rows;
+  document.getElementById('tb-hist').innerHTML = rows.map(r => `
+    <tr><td class="tx-sm">${r.date}</td>
+    <td><span class="badge ${r.type==='입고'?'b-in':'b-out'}">${r.type}</span></td>
+    <td>${r.product}</td>
+    <td class="tr mono">${r.qty.toLocaleString()}</td>
+    <td class="tr mono">${(r.balance||0).toLocaleString()}</td>
+    <td><span class="badge b-br" style="font-size:10px">${r.txType||''}</span></td>
+    <td class="mono tx-sm ellip">${r.tracking||''}</td>
+    <td class="tx-sm tx-m">${r.note||''}</td></tr>`
+  ).join('') || empty(8,'내역 없음');
+};
 
-  const rows = all.map(t => `
-    <tr>
-      <td class="text-sm">${t.date}</td>
-      <td><span class="badge ${t.type==='입고' ? 'badge-in' : 'badge-out'}">${t.type}</span></td>
-      <td>${t.product}</td>
-      <td class="text-right mono">${t.qty.toLocaleString()}</td>
-      <td class="text-right mono">${(t.balance||0).toLocaleString()}</td>
-      <td><span class="badge badge-brand" style="font-size:10px;">${t.txType||''}</span></td>
-      <td class="text-sm mono text-muted" style="max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${t.tracking||''}</td>
-      <td class="text-sm text-muted">${t.note||''}</td>
-    </tr>
-  `).join('');
-  document.getElementById('history-table').innerHTML = rows || emptyRow(8, '내역 없음');
-  window._historyData = all;
+// ── REMOVALS ─────────────────────────────────────────────────
+async function loadRm() {
+  const snap = await getDocs(query(collection(db,'removals'), orderBy('date','desc')));
+  const rows = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  document.getElementById('tb-rm').innerHTML = rows.map(r => `
+    <tr><td>${r.date}</td><td class="fw5">${r.product}</td>
+    <td class="tr mono">${r.outQty}</td>
+    <td class="mono tx-sm ellip" title="${r.tracking}">${r.tracking||'—'}</td>
+    <td class="tr mono">${r.caQty||'—'}</td>
+    <td>${r.caDate||'—'}</td>
+    <td>${r.caQty>0?'<span class="badge b-in">입고완료</span>':'<span class="badge b-wn">대기중</span>'}</td>
+    <td><button class="btn btn-sm btn-ng" onclick="delRm('${r.id}')">삭제</button></td></tr>`
+  ).join('') || empty(8,'리무벌 내역 없음');
 }
 
-async function loadInbound() {
-  const from = document.getElementById('filter-in-from').value;
-  const to = document.getElementById('filter-in-to').value;
-
-  let q = query(collection(db, 'transactions'), where('type','==','입고'), orderBy('date','desc'));
-  const snap = await getDocs(q);
-  let all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (from) all = all.filter(t => t.date >= from);
-  if (to) all = all.filter(t => t.date <= to);
-
-  const rows = all.map(t => `
-    <tr>
-      <td>${t.date}</td>
-      <td class="fw500">${t.product}</td>
-      <td class="text-right mono">${t.qty.toLocaleString()}</td>
-      <td class="text-sm text-muted">${t.pltbox||''}</td>
-      <td class="mono text-sm">${t.tracking||''}</td>
-      <td class="text-sm text-muted">${t.note||''}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="deleteTx('${t.id}')">삭제</button></td>
-    </tr>
-  `).join('');
-  document.getElementById('inbound-table').innerHTML = rows || emptyRow(7, '입고 내역 없음');
-}
-
-async function loadOutbound() {
-  const from = document.getElementById('filter-out-from').value;
-  const to = document.getElementById('filter-out-to').value;
-  const type = document.getElementById('filter-out-type').value;
-
-  let q = query(collection(db, 'transactions'), where('type','==','출고'), orderBy('date','desc'));
-  const snap = await getDocs(q);
-  let all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (from) all = all.filter(t => t.date >= from);
-  if (to) all = all.filter(t => t.date <= to);
-  if (type) all = all.filter(t => t.txType === type);
-
-  const rows = all.map(t => `
-    <tr>
-      <td>${t.date}</td>
-      <td class="fw500">${t.product}</td>
-      <td><span class="badge badge-brand" style="font-size:10px;">${t.txType||''}</span></td>
-      <td class="text-right mono">${t.qty.toLocaleString()}</td>
-      <td class="mono text-sm" style="max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${t.tracking||''}</td>
-      <td class="text-sm text-muted">${t.note||''}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="deleteTx('${t.id}')">삭제</button></td>
-    </tr>
-  `).join('');
-  document.getElementById('outbound-table').innerHTML = rows || emptyRow(7, '출고 내역 없음');
-}
-
-async function loadRemovals() {
-  const snap = await getDocs(query(collection(db, 'removals'), orderBy('date', 'desc')));
-  const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-  const rows = all.map(r => {
-    const received = r.caQty > 0;
-    const status = received ? '<span class="badge badge-in">입고완료</span>' : '<span class="badge badge-warn">대기중</span>';
-    return `
-      <tr>
-        <td>${r.date}</td>
-        <td class="fw500">${r.product}</td>
-        <td class="text-right mono">${r.outQty}</td>
-        <td class="mono text-sm" style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${r.tracking}">${r.tracking||'—'}</td>
-        <td class="text-right mono">${r.caQty||'—'}</td>
-        <td>${r.caDate||'—'}</td>
-        <td>${status}</td>
-        <td><button class="btn btn-sm btn-danger" onclick="deleteRemoval('${r.id}')">삭제</button></td>
-      </tr>
-    `;
-  }).join('');
-  document.getElementById('removals-table').innerHTML = rows || emptyRow(8, '리무벌 내역 없음');
-}
-
-// ============================================================
-// SAVE FUNCTIONS
-// ============================================================
-window.saveProduct = async function() {
-  const name = document.getElementById('p-name').value.trim();
-  if (!name) { showToast('상품명을 입력해주세요.', 'danger'); return; }
-
-  await addDoc(collection(db, 'products'), {
-    name,
-    asin: document.getElementById('p-asin').value.trim(),
-    fnsku: document.getElementById('p-fnsku').value.trim(),
-    upc: document.getElementById('p-upc').value.trim(),
-    minStock: parseInt(document.getElementById('p-minstock').value) || 0,
-    currentStock: 0,
-    note: document.getElementById('p-note').value.trim(),
-    createdAt: serverTimestamp()
+// ── SAVE ─────────────────────────────────────────────────────
+window.saveProd = async function() {
+  const name = gv('p-name');
+  if (!name) { toast('상품명을 입력해주세요.','ng'); return; }
+  await addDoc(collection(db,'products'), {
+    name, asin:gv('p-asin'), fnsku:gv('p-fnsku'), upc:gv('p-upc'),
+    minStock:+document.getElementById('p-min').value||0,
+    currentStock:0, note:gv('p-note'), createdAt:serverTimestamp()
   });
-
-  closeModal('modal-product');
-  showToast('상품이 등록되었습니다.', 'success');
-  await loadProducts();
+  closeMo('mo-prod'); toast('상품이 등록되었습니다.','ok');
+  await loadProds();
 };
 
-window.saveInbound = async function() {
-  const date = document.getElementById('in-date').value;
-  const productName = document.getElementById('in-product').value;
-  const qty = parseInt(document.getElementById('in-qty').value);
-
-  if (!date || !productName || !qty) { showToast('날짜, 상품, 수량을 입력해주세요.', 'danger'); return; }
-
-  const product = products.find(p => p.name === productName);
-  if (!product) { showToast('상품을 찾을 수 없습니다.', 'danger'); return; }
-
-  const newStock = (product.currentStock || 0) + qty;
-
-  // Update product stock
-  await updateDoc(doc(db, 'products', product.id), { currentStock: newStock });
-
-  // Add transaction
-  await addDoc(collection(db, 'transactions'), {
-    date, type: '입고', product: productName,
-    qty, balance: newStock,
-    txType: '입고',
-    pltbox: document.getElementById('in-pltbox').value.trim(),
-    tracking: document.getElementById('in-awb').value.trim(),
-    note: document.getElementById('in-note').value.trim(),
-    createdAt: serverTimestamp()
+window.saveIn = async function() {
+  const date=gv('i-date'), pn=gv('i-prod'), qty=+document.getElementById('i-qty').value;
+  if (!date||!pn||!qty) { toast('날짜·상품·수량 필수 입력','ng'); return; }
+  const p = prods.find(x=>x.name===pn);
+  if (!p) { toast('상품 없음','ng'); return; }
+  const ns = (p.currentStock||0)+qty;
+  await updateDoc(doc(db,'products',p.id), { currentStock:ns });
+  await addDoc(collection(db,'transactions'), {
+    date, type:'입고', product:pn, qty, balance:ns, txType:'입고',
+    pltbox:gv('i-plt'), tracking:gv('i-awb'), note:gv('i-note'), createdAt:serverTimestamp()
   });
-
-  closeModal('modal-inbound');
-  showToast(`입고 완료: ${productName} ${qty.toLocaleString()} pcs → 잔여 ${newStock.toLocaleString()} pcs`, 'success');
-  await refreshAll();
+  closeMo('mo-in');
+  toast(`입고 완료 · ${pn} +${qty.toLocaleString()} → 잔여 ${ns.toLocaleString()} pcs`, 'ok');
+  await reload();
 };
 
-window.saveOutbound = async function() {
-  const date = document.getElementById('out-date').value;
-  const productName = document.getElementById('out-product').value;
-  const qty = parseInt(document.getElementById('out-qty').value);
-  const txType = document.getElementById('out-type').value;
-
-  if (!date || !productName || !qty) { showToast('날짜, 상품, 수량을 입력해주세요.', 'danger'); return; }
-
-  const product = products.find(p => p.name === productName);
-  if (!product) { showToast('상품을 찾을 수 없습니다.', 'danger'); return; }
-
-  if (qty > product.currentStock) {
-    showToast(`재고 부족: 현재 ${product.currentStock.toLocaleString()} pcs`, 'danger');
-    return;
-  }
-
-  const newStock = product.currentStock - qty;
-
-  await updateDoc(doc(db, 'products', product.id), { currentStock: newStock });
-
-  await addDoc(collection(db, 'transactions'), {
-    date, type: '출고', product: productName,
-    qty, balance: newStock,
-    txType,
-    tracking: document.getElementById('out-tracking').value.trim(),
-    note: document.getElementById('out-note').value.trim(),
-    createdAt: serverTimestamp()
+window.saveOut = async function() {
+  const date=gv('o-date'), pn=gv('o-prod'), qty=+document.getElementById('o-qty').value, txType=gv('o-type');
+  if (!date||!pn||!qty) { toast('날짜·상품·수량 필수 입력','ng'); return; }
+  const p = prods.find(x=>x.name===pn);
+  if (!p) { toast('상품 없음','ng'); return; }
+  if (qty>p.currentStock) { toast(`재고 부족 — 현재 ${p.currentStock.toLocaleString()} pcs`,'ng'); return; }
+  const ns = p.currentStock-qty;
+  await updateDoc(doc(db,'products',p.id), { currentStock:ns });
+  await addDoc(collection(db,'transactions'), {
+    date, type:'출고', product:pn, qty, balance:ns, txType,
+    tracking:gv('o-track'), note:gv('o-note'), createdAt:serverTimestamp()
   });
-
-  closeModal('modal-outbound');
-  showToast(`출고 완료: ${productName} ${qty.toLocaleString()} pcs → 잔여 ${newStock.toLocaleString()} pcs`, 'success');
-  await refreshAll();
+  closeMo('mo-out');
+  toast(`출고 완료 · ${pn} -${qty.toLocaleString()} → 잔여 ${ns.toLocaleString()} pcs`, 'ok');
+  await reload();
 };
 
-window.saveRemoval = async function() {
-  const date = document.getElementById('rm-date').value;
-  const product = document.getElementById('rm-product').value.trim();
-  const outQty = parseInt(document.getElementById('rm-qty').value) || 0;
-
-  if (!date || !product || !outQty) { showToast('날짜, 상품명, 수량을 입력해주세요.', 'danger'); return; }
-
-  await addDoc(collection(db, 'removals'), {
-    date,
-    product,
-    outQty,
-    tracking: document.getElementById('rm-tracking').value.trim(),
-    caQty: parseInt(document.getElementById('rm-ca-qty').value) || 0,
-    caDate: document.getElementById('rm-ca-date').value,
-    note: document.getElementById('rm-note').value.trim(),
-    createdAt: serverTimestamp()
+window.saveRm = async function() {
+  const date=gv('r-date'), product=gv('r-prod'), outQty=+document.getElementById('r-qty').value||0;
+  if (!date||!product||!outQty) { toast('날짜·상품명·수량 필수 입력','ng'); return; }
+  await addDoc(collection(db,'removals'), {
+    date, product, outQty, tracking:gv('r-track'),
+    caQty:+document.getElementById('r-caqty').value||0,
+    caDate:gv('r-cadate'), note:gv('r-note'), createdAt:serverTimestamp()
   });
-
-  closeModal('modal-removal');
-  showToast('리무벌 오더가 등록되었습니다.', 'success');
-  await loadRemovals();
+  closeMo('mo-rm'); toast('리무벌 오더 등록됨','ok');
+  await loadRm();
 };
 
-window.deleteTx = async function(id) {
-  if (!confirm('이 내역을 삭제하시겠습니까?\n재고는 자동으로 복원되지 않습니다.')) return;
-  await deleteDoc(doc(db, 'transactions', id));
-  showToast('삭제되었습니다.', 'info');
-  await loadHistory();
-  await loadInbound();
-  await loadOutbound();
+// ── DELETE ───────────────────────────────────────────────────
+window.delTx = async function(id) {
+  if (!confirm('삭제하시겠습니까?\n※ 재고는 자동 복원되지 않습니다.')) return;
+  await deleteDoc(doc(db,'transactions',id));
+  toast('삭제됨','br'); loadIn(); loadOut(); loadHist();
 };
-
-window.deleteRemoval = async function(id) {
+window.delRm = async function(id) {
   if (!confirm('삭제하시겠습니까?')) return;
-  await deleteDoc(doc(db, 'removals', id));
-  showToast('삭제되었습니다.', 'info');
-  await loadRemovals();
+  await deleteDoc(doc(db,'removals',id));
+  toast('삭제됨','br'); loadRm();
+};
+window.editProd = () => toast('상품 수정은 Cursor AI로 추가 구현 예정','br');
+
+// ── STOCK INFO ───────────────────────────────────────────────
+window.showSib = function() {
+  const p = prods.find(x=>x.name===gv('o-prod'));
+  const sib = document.getElementById('o-sib');
+  if (p) { document.getElementById('o-cur').textContent=p.currentStock.toLocaleString(); sib.style.display='block'; }
+  else sib.style.display='none';
 };
 
-// ============================================================
-// PRODUCT SELECT UPDATE (stock info)
-// ============================================================
-function populateProductSelects() {
-  ['in-product', 'out-product'].forEach(id => {
-    const sel = document.getElementById(id);
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">상품 선택...</option>' +
-      products.map(p => `<option value="${p.name}" ${p.name===cur?'selected':''}>${p.name} (재고: ${p.currentStock.toLocaleString()})</option>`).join('');
-  });
-}
-
-document.getElementById('out-product').addEventListener('change', function() {
-  const p = products.find(pr => pr.name === this.value);
-  const info = document.getElementById('out-stock-info');
-  if (p) {
-    document.getElementById('out-current-stock').textContent = p.currentStock.toLocaleString();
-    info.style.display = 'block';
-  } else {
-    info.style.display = 'none';
-  }
-});
-
-// ============================================================
-// DEMO DATA (fallback when Firebase not configured)
-// ============================================================
-function loadDemoData() {
-  products = SEED_DATA.products.map((p,i) => ({ id: 'demo-'+i, ...p }));
-  window._products = products;
-  renderProducts();
-  renderStockTable();
-  populateProductSelects();
-
-  document.getElementById('m-sku').textContent = products.length;
-  document.getElementById('m-total').textContent = products.reduce((s,p) => s+p.currentStock,0).toLocaleString();
-  document.getElementById('m-in').textContent = '8,992';
-  document.getElementById('m-out').textContent = '6,193';
-  document.getElementById('last-updated').textContent = new Date().toLocaleString('ko-KR') + ' (데모)';
-
-  const rows = SEED_DATA.transactions.map(t => `
-    <tr>
-      <td class="text-sm">${t.date}</td>
-      <td><span class="badge ${t.type==='입고'?'badge-in':'badge-out'}">${t.type}</span></td>
-      <td>${t.product}</td>
-      <td class="text-right mono">${t.qty.toLocaleString()}</td>
-      <td class="text-right mono">${t.balance.toLocaleString()}</td>
-      <td class="text-sm text-muted">${t.note}</td>
-    </tr>
-  `).join('');
-  document.getElementById('recent-table').innerHTML = rows;
-
-  const histRows = SEED_DATA.transactions.map(t => `
-    <tr>
-      <td>${t.date}</td>
-      <td><span class="badge ${t.type==='입고'?'badge-in':'badge-out'}">${t.type}</span></td>
-      <td>${t.product}</td>
-      <td class="text-right mono">${t.qty.toLocaleString()}</td>
-      <td class="text-right mono">${t.balance.toLocaleString()}</td>
-      <td><span class="badge badge-brand" style="font-size:10px;">${t.txType}</span></td>
-      <td>—</td>
-      <td class="text-sm text-muted">${t.note}</td>
-    </tr>
-  `).join('');
-  document.getElementById('history-table').innerHTML = histRows;
-
-  const rmRows = SEED_DATA.removals.map(r => `
-    <tr>
-      <td>${r.date}</td>
-      <td>${r.product}</td>
-      <td class="text-right mono">${r.outQty}</td>
-      <td class="mono text-sm" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.tracking}</td>
-      <td class="text-right mono">${r.caQty||'—'}</td>
-      <td>${r.caDate||'—'}</td>
-      <td>${r.caQty>0?'<span class="badge badge-in">입고완료</span>':'<span class="badge badge-warn">대기중</span>'}</td>
-      <td>—</td>
-    </tr>
-  `).join('');
-  document.getElementById('removals-table').innerHTML = rmRows;
-  document.getElementById('inbound-table').innerHTML = emptyRow(7, 'Firebase 연결 후 조회 가능합니다.');
-  document.getElementById('outbound-table').innerHTML = emptyRow(7, 'Firebase 연결 후 조회 가능합니다.');
-  document.getElementById('products-table').innerHTML = document.getElementById('stock-table').innerHTML;
-}
-
-// ============================================================
-// PAGE NAVIGATION
-// ============================================================
-window.showPage = function(name) {
-  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
-  event.currentTarget.classList.add('active');
-
-  if (name === 'inbound') loadInbound();
-  if (name === 'outbound') loadOutbound();
-  if (name === 'removals') loadRemovals();
-  if (name === 'history') loadHistory();
-};
-
-// ============================================================
-// MODALS
-// ============================================================
-window.openProductModal = function() {
-  ['p-name','p-asin','p-fnsku','p-upc','p-note'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('p-minstock').value = 500;
-  document.getElementById('modal-product').classList.remove('hidden');
-};
-window.openInboundModal = function() {
-  document.getElementById('in-date').value = new Date().toISOString().slice(0,10);
-  document.getElementById('in-qty').value = '';
-  document.getElementById('in-pltbox').value = '';
-  document.getElementById('in-awb').value = '';
-  document.getElementById('in-note').value = '';
-  document.getElementById('modal-inbound').classList.remove('hidden');
-};
-window.openOutboundModal = function() {
-  document.getElementById('out-date').value = new Date().toISOString().slice(0,10);
-  document.getElementById('out-qty').value = '';
-  document.getElementById('out-tracking').value = '';
-  document.getElementById('out-note').value = '';
-  document.getElementById('out-stock-info').style.display = 'none';
-  document.getElementById('modal-outbound').classList.remove('hidden');
-};
-window.openRemovalModal = function() {
-  document.getElementById('rm-date').value = new Date().toISOString().slice(0,10);
-  ['rm-product','rm-tracking','rm-note'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('rm-qty').value = '';
-  document.getElementById('rm-ca-qty').value = '';
-  document.getElementById('rm-ca-date').value = '';
-  document.getElementById('modal-removal').classList.remove('hidden');
-};
-window.closeModal = function(id) {
-  document.getElementById(id).classList.add('hidden');
-};
-
-// Close modal on overlay click
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) overlay.classList.add('hidden');
-  });
-});
-
-// ============================================================
-// UTILITIES
-// ============================================================
-window.filterProducts = function(val) {
-  const q = val.toLowerCase();
-  const rows = products.filter(p => p.name.toLowerCase().includes(q));
-  // re-render filtered
-  const html = rows.map(p => `
-    <tr class="${p.currentStock <= p.minStock ? 'low-stock' : ''}">
-      <td class="fw500">${p.name}</td>
-      <td class="mono text-sm">${p.asin||'—'}</td>
-      <td class="mono text-sm">${p.fnsku||'—'}</td>
-      <td class="mono text-sm">${p.upc||'—'}</td>
-      <td class="text-right"><span class="stock-pill ${p.currentStock<=p.minStock?'badge-warn':'badge-brand'}">${p.currentStock.toLocaleString()}</span></td>
-      <td class="text-right text-muted">${(p.minStock||0).toLocaleString()}</td>
-      <td class="text-sm text-muted">${formatDate(p.createdAt)}</td>
-      <td class="text-right"><button class="btn btn-sm" onclick="editProduct('${p.id}')">수정</button></td>
-    </tr>
-  `).join('');
-  document.getElementById('products-table').innerHTML = html || emptyRow(8, '검색 결과 없음');
-};
-
+// ── CSV ──────────────────────────────────────────────────────
 window.exportCSV = function() {
-  const data = window._historyData || [];
-  const header = ['날짜','구분','상품명','수량','잔여재고','유형','Tracking','비고'];
-  const rows = data.map(t => [t.date, t.type, t.product, t.qty, t.balance||'', t.txType||'', t.tracking||'', t.note||''].join(','));
-  const csv = [header.join(','), ...rows].join('\n');
-  const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = '케어젠_입출고내역_' + new Date().toISOString().slice(0,10) + '.csv';
+  const rows = window._hist||[];
+  const h = ['날짜','구분','상품명','수량','잔여재고','유형','Tracking','비고'];
+  const csv = [h,...rows.map(r=>[r.date,r.type,r.product,r.qty,r.balance||'',r.txType||'',r.tracking||'',r.note||''])].map(r=>r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
+  a.download = '케어젠_'+new Date().toISOString().slice(0,10)+'.csv';
   a.click();
 };
 
-function formatDate(ts) {
-  if (!ts) return '—';
-  if (ts.toDate) return ts.toDate().toLocaleDateString('ko-KR');
-  if (ts instanceof Date) return ts.toLocaleDateString('ko-KR');
-  return String(ts).slice(0,10);
-}
+// ── NAV ──────────────────────────────────────────────────────
+document.querySelectorAll('.nb[data-page]').forEach(btn => {
+  btn.addEventListener('click', async function() {
+    document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+    this.classList.add('on');
+    const pg = this.dataset.page;
+    document.getElementById('pg-'+pg).classList.add('on');
+    if (pg==='inbound')  await loadIn();
+    if (pg==='outbound') await loadOut();
+    if (pg==='history')  await loadHist();
+    if (pg==='removals') await loadRm();
+  });
+});
 
-function emptyRow(cols, msg) {
-  return `<tr><td colspan="${cols}" class="text-center" style="padding:32px; color:var(--text-hint);">
-    <div class="empty-icon">📭</div>
-    <div class="empty-title">${msg}</div>
-  </td></tr>`;
-}
-
-function showToast(msg, type='info') {
-  const el = document.createElement('div');
-  el.className = `toast toast-${type}`;
-  el.textContent = msg;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 4000);
-}
-window.showToast = showToast;
-
-function showAlert(msg, type='warning') {
-  document.getElementById('alert-area').innerHTML = `
-    <div class="alert alert-${type}">${msg}</div>
-  `;
-}
-
-window.editProduct = function(id) {
-  showToast('상품 수정 기능 — Cursor AI로 추가 구현 예정', 'info');
+// ── MODAL ────────────────────────────────────────────────────
+window.openMo = function(id) {
+  const t = today();
+  if (id==='mo-in') { sv('i-date',t); sv('i-qty',''); sv('i-plt',''); sv('i-awb',''); sv('i-note',''); fillSels(); }
+  if (id==='mo-out') { sv('o-date',t); sv('o-qty',''); sv('o-track',''); sv('o-note',''); document.getElementById('o-sib').style.display='none'; fillSels(); }
+  if (id==='mo-rm') { sv('r-date',t); sv('r-prod',''); sv('r-qty',''); sv('r-track',''); sv('r-caqty',''); sv('r-cadate',''); sv('r-note',''); }
+  if (id==='mo-prod') { sv('p-name',''); sv('p-asin',''); sv('p-fnsku',''); sv('p-upc',''); sv('p-min','500'); sv('p-note',''); }
+  document.getElementById(id).classList.remove('hide');
 };
+window.closeMo = id => document.getElementById(id).classList.add('hide');
+document.querySelectorAll('.mo').forEach(mo => mo.addEventListener('click', e => { if(e.target===mo) mo.classList.add('hide'); }));
 
+// ── UTIL ─────────────────────────────────────────────────────
+function gv(id) { return document.getElementById(id).value.trim(); }
+function sv(id, v) { document.getElementById(id).value = v; }
+function today() { return new Date().toISOString().slice(0,10); }
+function empty(c, m) { return `<tr><td colspan="${c}" style="padding:36px;text-align:center;color:var(--th)">${m}</td></tr>`; }
+function toast(msg, type='br') {
+  const el = document.createElement('div');
+  el.className=`toast t-${type}`; el.textContent=msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(()=>el.remove(), 4000);
+}
 </script>
 </body>
 </html>
