@@ -263,7 +263,7 @@ body.client-mode .admin-only{display:none!important}
       <div class="card">
         <div class="card-hd"><span class="card-title">요청 대기</span></div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th class="admin-only"></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-in-pending"></tbody>
         </table></div>
       </div>
@@ -278,7 +278,7 @@ body.client-mode .admin-only{display:none!important}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th class="admin-only"></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>PLT/BOX</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-in"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-in-bar">
@@ -434,7 +434,6 @@ body.client-mode .admin-only{display:none!important}
       <div class="fg s2"><span id="i-box-hint" class="tx-sm tx-m" style="display:none"></span></div>
       <div class="fg"><label>PLT / BOX 구성</label><input id="i-plt" placeholder="6PLT (72BOX)" oninput="calcQtyIn()"></div>
       <div class="fg s2"><span id="i-plt-warn" class="tx-sm" style="color:var(--wn)"></span></div>
-      <div class="fg s2"><label>AWB / 참조번호</label><input id="i-awb" placeholder="MAWB 또는 HAWB"></div>
       <div class="fg s2"><label>비고</label><textarea id="i-note"></textarea></div>
     </div></div>
     <div class="mo-ft"><button class="btn" onclick="closeMo('mo-in')">취소</button><button class="btn btn-p" onclick="saveIn()">입고 요청</button></div>
@@ -1204,10 +1203,9 @@ try {
       return '<tr class="ls"><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
         '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
-        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         txPendingActions(r) + '</tr>';
-    }).join('') || empty(7, '대기 중인 입고 요청 없음');
+    }).join('') || empty(6, '대기 중인 입고 요청 없음');
   }
 
   function renderOutPending(rows) {
@@ -1309,10 +1307,9 @@ try {
         '<td class="tr mono">' + r.qty.toLocaleString() + '</td>' +
         '<td class="tr mono">' + renderBalance(r) + '</td>' +
         '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
-        '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
         txCompletedActions(r) + '</tr>';
-    }).join('') || empty(8, '완료된 입고 내역 없음');
+    }).join('') || empty(7, '완료된 입고 내역 없음');
     updatePgBar('in', 'in');
   }
 
@@ -1652,7 +1649,7 @@ try {
     if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
     await addDoc(collection(db, 'transactions'), {
       date, type: '입고', status: 'requested', product: pn, productId: p.id, qty, balance: null, txType: '입고',
-      pltbox: gv('i-plt'), tracking: gv('i-awb'), note: gv('i-note'), createdAt: serverTimestamp()
+      pltbox: gv('i-plt'), tracking: '', note: gv('i-note'), createdAt: serverTimestamp()
     });
     invalidateTxCache();
     window.closeMo('mo-in');
@@ -1974,7 +1971,7 @@ try {
     if (id === 'mo-rm' && !requireAdmin()) return;
     const t = today();
     if (id === 'mo-in') {
-      sv('i-date', t); sv('i-qty', ''); sv('i-box', ''); sv('i-plt', ''); sv('i-awb', ''); sv('i-note', '');
+      sv('i-date', t); sv('i-qty', ''); sv('i-box', ''); sv('i-plt', ''); sv('i-note', '');
       document.getElementById('i-plt-warn').textContent = '';
       document.getElementById('i-box-hint').style.display = 'none';
       fillSels(); onInProdChange();
