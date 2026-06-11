@@ -15,7 +15,7 @@
   │ [P2] 트랜잭션 수정          → window.editTx / saveTx  ✅ 구현됨              │
   │ [P2] PLT/BOX 자동환산       → boxQty + BOX 입력 → pcs 자동계산  ✅ 구현됨     │
   │ [P2] 리무벌→재고 연동       → saveRm / editRm CA입고→transactions  ✅ 구현됨 │
-  │ [P3] 로그인/인증            → Firebase Auth + 로그인 게이트  ✅ 구현됨       │
+  │ [P3] 로그인/인증            → Firebase Auth + admin/client 역할 분리  ✅ 구현됨 │
   │ [P3] 페이지네이션           → loadHist/loadIn/loadOut limit+cursor  ✅ 구현됨 │
   │ [P3] 엑셀 bulk import       → pg-import + SheetJS 일괄 업로드  ✅ 구현됨     │
   │ [P4] 재고회전율 리포트      → 신규 페이지                                  │
@@ -138,6 +138,8 @@ textarea{resize:vertical;min-height:72px}
 .pg-bar{padding:12px 20px;border-top:1px solid var(--bd);display:flex;align-items:center;justify-content:center;gap:12px;font-size:13px;color:var(--tm);flex-wrap:wrap}
 .imp-preview{max-height:320px;overflow:auto;margin-top:12px}
 .imp-err{color:var(--ng)}.imp-ok{color:var(--ok)}
+body.client-mode .admin-only{display:none!important}
+.role-badge{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--brand-lt);color:var(--brand-tx);font-weight:600}
 @media(max-width:768px){.side{display:none}.g2{grid-template-columns:1fr}.s2{grid-column:span 1}.metrics{grid-template-columns:1fr 1fr}}
 </style>
 </head>
@@ -146,7 +148,7 @@ textarea{resize:vertical;min-height:72px}
 <div id="auth-gate" class="auth-gate">
   <div class="auth-box">
     <div class="ph-title" style="margin-bottom:4px">케어젠 WMS</div>
-    <p class="tx-m tx-sm" style="margin-bottom:20px">ENOMAD 창고 관리 · 로그인 필요</p>
+    <p class="tx-m tx-sm" style="margin-bottom:20px">ENOMAD / 케어젠 WMS · 로그인</p>
     <div class="fg"><label>이메일</label><input type="email" id="auth-email" placeholder="user@enomad.com" autocomplete="username"></div>
     <div class="fg" style="margin-top:12px"><label>비밀번호</label><input type="password" id="auth-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <p id="auth-err" class="tx-sm" style="color:var(--ng);margin-top:10px;min-height:18px"></p>
@@ -166,6 +168,7 @@ textarea{resize:vertical;min-height:72px}
   <div class="nav-right">
     <span class="dot" id="fb-dot"></span>
     <span id="fb-msg">연결 중...</span>
+    <span id="role-badge" class="role-badge"></span>
     <span id="auth-user" class="tx-sm tx-m"></span>
     <button class="btn btn-sm" id="btn-logout" onclick="doLogout()">로그아웃</button>
     <span>CA Vernon 창고</span>
@@ -180,8 +183,8 @@ textarea{resize:vertical;min-height:72px}
     <button class="nb" data-page="inbound"><span class="ni">⬇️</span>입고 처리</button>
     <button class="nb" data-page="outbound"><span class="ni">⬆️</span>출고 처리</button>
     <button class="nb" data-page="history"><span class="ni">📋</span>입출고 내역</button>
-    <button class="nb" data-page="removals"><span class="ni">↩️</span>리무벌 관리</button>
-    <button class="nb" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
+    <button class="nb admin-only" data-page="removals"><span class="ni">↩️</span>리무벌 관리</button>
+    <button class="nb admin-only" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
     <!-- TODO[P4]: 입고예정(ETA) 관리 메뉴 추가
          <button class="nb" data-page="eta"><span class="ni">🛫</span>입고 예정</button>
          - 신규 컬렉션 inbound_plans/{id}: product, qty, etd, eta, awb, status(운송중|도착|입고완료)
@@ -254,13 +257,13 @@ textarea{resize:vertical;min-height:72px}
     <!-- INBOUND -->
     <div class="page" id="pg-inbound">
       <div class="ph"><div class="ph-row">
-        <div><div class="ph-title">입고 처리</div><div class="ph-sub">요청 등록 → 완료 처리 시 재고 반영</div></div>
+        <div><div class="ph-title" id="ph-inbound-title">입고 처리</div><div class="ph-sub" id="ph-inbound-sub">요청 등록 → 완료 처리 시 재고 반영</div></div>
         <button class="btn btn-p" onclick="openMo('mo-in')">+ 입고 요청</button>
       </div></div>
       <div class="card">
         <div class="card-hd"><span class="card-title">요청 대기</span></div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-in-pending"></tbody>
         </table></div>
       </div>
@@ -275,7 +278,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>PLT/BOX</th><th>AWB</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-in"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-in-bar">
@@ -289,13 +292,13 @@ textarea{resize:vertical;min-height:72px}
     <!-- OUTBOUND -->
     <div class="page" id="pg-outbound">
       <div class="ph"><div class="ph-row">
-        <div><div class="ph-title">출고 처리</div><div class="ph-sub">FBA · B2C · B2B · 요청 → 완료 시 재고 차감</div></div>
+        <div><div class="ph-title" id="ph-outbound-title">출고 처리</div><div class="ph-sub" id="ph-outbound-sub">FBA · B2C · B2B · 요청 → 완료 시 재고 차감</div></div>
         <button class="btn btn-ng" onclick="openMo('mo-out')">↑ 출고 요청</button>
       </div></div>
       <div class="card">
         <div class="card-hd"><span class="card-title">요청 대기</span></div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th>Tracking</th><th>첨부</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-out-pending"></tbody>
         </table></div>
       </div>
@@ -314,7 +317,7 @@ textarea{resize:vertical;min-height:72px}
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>상품명</th><th>유형</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>Tracking</th><th>첨부</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-out"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-out-bar">
@@ -336,11 +339,11 @@ textarea{resize:vertical;min-height:72px}
             <select id="f-h-t" style="width:90px;padding:6px 10px;font-size:12px" onchange="loadHist()">
               <option value="">전체</option><option>입고</option><option>출고</option>
             </select>
-            <button class="btn btn-sm" onclick="exportCSV()">📥 CSV</button>
+            <button class="btn btn-sm admin-only" onclick="exportCSV()">📥 CSV</button>
           </div>
         </div>
         <div class="tw"><table>
-          <thead><tr><th>날짜</th><th>구분</th><th>상태</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>첨부</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th>날짜</th><th>구분</th><th>상태</th><th>상품명</th><th class="tr">수량</th><th class="tr">잔여재고</th><th>유형</th><th>Tracking</th><th>첨부</th><th>비고</th><th class="admin-only"></th></tr></thead>
           <tbody id="tb-hist"></tbody>
         </table></div>
         <div class="pg-bar" id="pg-hist-bar">
@@ -407,13 +410,13 @@ textarea{resize:vertical;min-height:72px}
       <div class="fg"><label>ASIN</label><input id="p-asin" placeholder="B0XXXXXXXXX"></div>
       <div class="fg"><label>FNSKU</label><input id="p-fnsku" placeholder="X00XXXXXXXXX"></div>
       <div class="fg"><label>UPC</label><input id="p-upc"></div>
-      <div class="fg" id="p-stock-wrap" style="display:none"><label>현재 재고 (pcs)</label><input type="number" id="p-stock" value="0" min="0"></div>
+      <div class="fg admin-only" id="p-stock-wrap" style="display:none"><label>현재 재고 (pcs)</label><input type="number" id="p-stock" value="0" min="0"></div>
       <div class="fg"><label>1BOX당 수량 (pcs)</label><input type="number" id="p-boxqty" value="0" min="0" placeholder="예: 126"></div>
       <div class="fg"><label>최소 재고 알림 (pcs)</label><input type="number" id="p-min" value="500" min="0"></div>
       <div class="fg s2"><label>비고</label><textarea id="p-note"></textarea></div>
     </div></div>
     <div class="mo-ft">
-      <button class="btn btn-ng" id="p-del-btn" style="display:none;margin-right:auto" onclick="deleteProd()">삭제</button>
+      <button class="btn btn-ng admin-only" id="p-del-btn" style="display:none;margin-right:auto" onclick="deleteProd()">삭제</button>
       <button class="btn" onclick="closeMo('mo-prod')">취소</button>
       <button class="btn btn-p" onclick="saveProd()">저장</button>
     </div>
@@ -525,6 +528,7 @@ import {
 
 // ── Config ──────────────────────────────────────────────────
 // [P3] Firebase Console → Authentication → Email/Password 활성화 후 사용자 생성
+// [P3] AUTH_ROLES (index.html) 에 admin/client 이메일 등록
 // [P3] Firestore Rules: allow read,write: if request.auth != null;
 // [P3] Storage Rules:   allow read,write: if request.auth != null;
 const FB_CFG = {
@@ -538,6 +542,19 @@ const FB_CFG = {
 
 const CLIENT = 'caregen';
 // Storage 경로: ${CLIENT}/inbound/ | ${CLIENT}/outbound/ | ${CLIENT}/invoice/
+
+// ── 계정 역할 (Firebase Auth 이메일 → admin | client) ─────────
+// Firebase Console에서 계정 생성 후 아래 목록에 이메일 추가
+const AUTH_ROLES = {
+  admin: [
+    'park@enomad.co.kr'
+  ],
+  client: [
+    'wms@caregen.com',
+    'caregen@caregen.com'
+  ]
+};
+// 목록에 없으면 도메인으로 판별: @enomad.com · @enomad.co.kr → admin, @caregen.com → client
 
 // ── Seed Data ────────────────────────────────────────────────
 const SEED_PRODS = [
@@ -590,6 +607,7 @@ const PAGE_SIZE = 50;
 let db;
 let fbApp;
 let auth;
+let userRole = null;
 let storage;
 let appStarted = false;
 let prods = [];
@@ -672,6 +690,10 @@ document.querySelectorAll('.nb[data-page]').forEach(function(btn) {
     document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('on'); });
     this.classList.add('on');
     const pg = this.dataset.page;
+    if (!isAdmin() && (pg === 'removals' || pg === 'import')) {
+      toast('ENOMAD 관리자만 접근할 수 있습니다.', 'ng');
+      return;
+    }
     document.getElementById('pg-' + pg).classList.add('on');
     if (pg === 'inbound')  await window.loadIn();
     if (pg === 'outbound') await window.loadOut();
@@ -680,6 +702,55 @@ document.querySelectorAll('.nb[data-page]').forEach(function(btn) {
     if (pg === 'import') { importRows = []; document.getElementById('imp-preview').style.display = 'none'; document.getElementById('btn-imp-run').disabled = true; }
   });
 });
+
+function resolveUserRole(email) {
+  const e = (email || '').toLowerCase().trim();
+  if (AUTH_ROLES.admin.some(function(a) { return e === a.toLowerCase(); })) return 'admin';
+  if (AUTH_ROLES.client.some(function(a) { return e === a.toLowerCase(); })) return 'client';
+  if (e.endsWith('@enomad.com') || e.endsWith('@enomad.co.kr')) return 'admin';
+  if (e.endsWith('@caregen.com') || e.includes('caregen')) return 'client';
+  return null;
+}
+
+function isAdmin() { return userRole === 'admin'; }
+function isClient() { return userRole === 'client'; }
+
+function requireAdmin(msg) {
+  if (!isAdmin()) {
+    toast(msg || 'ENOMAD 관리자만 사용할 수 있습니다.', 'ng');
+    return false;
+  }
+  return true;
+}
+
+function applyRoleUI() {
+  document.body.classList.toggle('client-mode', isClient());
+  document.body.classList.toggle('admin-mode', isAdmin());
+  const badge = document.getElementById('role-badge');
+  const navName = document.querySelector('.nav-name');
+  const navClient = document.querySelector('.nav-client');
+  if (isAdmin()) {
+    badge.textContent = 'Admin';
+    badge.style.background = 'var(--brand-lt)';
+    badge.style.color = 'var(--brand-tx)';
+    navName.textContent = 'ENOMAD';
+    navClient.textContent = '케어젠 WMS · Admin';
+    document.getElementById('ph-inbound-title').textContent = '입고 처리';
+    document.getElementById('ph-inbound-sub').textContent = '요청 등록 → 완료 처리 시 재고 반영';
+    document.getElementById('ph-outbound-title').textContent = '출고 처리';
+    document.getElementById('ph-outbound-sub').textContent = 'FBA · B2C · B2B · 요청 → 완료 시 재고 차감';
+  } else {
+    badge.textContent = '케어젠';
+    badge.style.background = 'var(--ok-bg)';
+    badge.style.color = 'var(--ok)';
+    navName.textContent = '케어젠';
+    navClient.textContent = 'WMS';
+    document.getElementById('ph-inbound-title').textContent = '입고 요청';
+    document.getElementById('ph-inbound-sub').textContent = '입고 요청 등록 · ENOMAD 확인 후 처리됩니다';
+    document.getElementById('ph-outbound-title').textContent = '출고 요청';
+    document.getElementById('ph-outbound-sub').textContent = '출고 요청 등록 · ENOMAD 확인 후 처리됩니다';
+  }
+}
 
 // ── Firebase + Auth ────────────────────────────────────────────
 setFbStatus('Firebase 초기화 중...', '');
@@ -707,6 +778,8 @@ window.doLogin = async function() {
 window.doLogout = async function() {
   await signOut(auth);
   appStarted = false;
+  userRole = null;
+  document.body.classList.remove('client-mode', 'admin-mode');
   document.getElementById('app-shell').classList.add('hide');
   document.getElementById('auth-gate').classList.remove('hide');
   document.getElementById('auth-pass').value = '';
@@ -715,11 +788,20 @@ window.doLogout = async function() {
 
 onAuthStateChanged(auth, async function(user) {
   if (user) {
+    userRole = resolveUserRole(user.email);
+    if (!userRole) {
+      toast('등록되지 않은 계정입니다. 관리자에게 문의하세요.', 'ng');
+      await signOut(auth);
+      return;
+    }
+    applyRoleUI();
     document.getElementById('auth-gate').classList.add('hide');
     document.getElementById('app-shell').classList.remove('hide');
     document.getElementById('auth-user').textContent = user.email || '';
     if (!appStarted) await startApp();
   } else {
+    userRole = null;
+    document.body.classList.remove('client-mode', 'admin-mode');
     document.getElementById('auth-gate').classList.remove('hide');
     document.getElementById('app-shell').classList.add('hide');
     document.getElementById('auth-user').textContent = '';
@@ -830,10 +912,26 @@ try {
   }
 
   function txPendingActions(r) {
-    return '<td class="btn-row">' +
+    if (!isAdmin()) return '<td class="admin-only"></td>';
+    return '<td class="btn-row admin-only">' +
       '<button class="btn btn-sm btn-ok" onclick="completeTx(\'' + r.id + '\')">완료</button>' +
       '<button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
       '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td>';
+  }
+
+  function txCompletedActions(r) {
+    if (!isAdmin()) return '<td class="admin-only"></td>';
+    return '<td class="btn-row admin-only"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
+      '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td>';
+  }
+
+  function txHistActions(r) {
+    if (!isAdmin()) return '<td class="admin-only"></td>';
+    return '<td class="btn-row admin-only">' +
+      (isTxRequested(r) ? '<button class="btn btn-sm btn-ok" onclick="completeTx(\'' + r.id + '\')">완료</button>' : '') +
+      '<button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
+      (isTxRequested(r) ? '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button>' : '') +
+      '</td>';
   }
 
   function txMatchesProduct(t, p) {
@@ -1213,8 +1311,7 @@ try {
         '<td class="tx-sm">' + (r.pltbox || '') + '</td>' +
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
-        '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
+        txCompletedActions(r) + '</tr>';
     }).join('') || empty(8, '완료된 입고 내역 없음');
     updatePgBar('in', 'in');
   }
@@ -1253,8 +1350,7 @@ try {
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="ellip">' + renderFileLink(r) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        '<td class="btn-row"><button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
-        '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button></td></tr>';
+        txCompletedActions(r) + '</tr>';
     }).join('') || empty(9, '완료된 출고 내역 없음');
     updatePgBar('out', 'out');
   }
@@ -1290,11 +1386,7 @@ try {
         '<td class="mono tx-sm ellip">' + (r.tracking || '') + '</td>' +
         '<td class="tc">' + renderFileLink(r) + '</td>' +
         '<td class="tx-sm tx-m">' + (r.note || '') + '</td>' +
-        '<td class="btn-row">' +
-        (isTxRequested(r) ? '<button class="btn btn-sm btn-ok" onclick="completeTx(\'' + r.id + '\')">완료</button>' : '') +
-        '<button class="btn btn-sm" onclick="editTx(\'' + r.id + '\')">수정</button>' +
-        (isTxRequested(r) ? '<button class="btn btn-sm btn-ng" onclick="delTx(\'' + r.id + '\')">취소</button>' : '') +
-        '</td></tr>';
+        txHistActions(r) + '</tr>';
     }).join('') || empty(11, '내역 없음');
     updatePgBar('hist', 'hist');
   }
@@ -1422,6 +1514,7 @@ try {
   };
 
   window.runBulkImport = async function() {
+    if (!requireAdmin()) return;
     const rows = importRows.filter(function(r) { return r.ok; });
     if (!rows.length) { toast('등록 가능한 행 없음', 'ng'); return; }
     if (!confirm(rows.length + '건을 일괄 등록하시겠습니까?')) return;
@@ -1488,7 +1581,11 @@ try {
     };
     if (editingProdId) {
       const old = prods.find(function(x) { return x.id === editingProdId; });
-      data.currentStock = parseInt(document.getElementById('p-stock').value) || 0;
+      if (isAdmin()) {
+        data.currentStock = parseInt(document.getElementById('p-stock').value) || 0;
+      } else if (old) {
+        data.currentStock = old.currentStock || 0;
+      }
       await updateDoc(doc(db, 'products', editingProdId), data);
       if (old && old.name !== name) {
         await renameProductRefs(old.name, name, editingProdId);
@@ -1626,6 +1723,7 @@ try {
   };
 
   window.saveRm = async function() {
+    if (!requireAdmin()) return;
     const date = gv('r-date'), product = gv('r-prod'), outQty = parseInt(document.getElementById('r-qty').value) || 0;
     const caQty = parseInt(document.getElementById('r-caqty').value) || 0;
     const caDate = gv('r-cadate');
@@ -1668,6 +1766,7 @@ try {
   };
 
   window.completeTx = async function(id) {
+    if (!requireAdmin()) return;
     const txSnap = await getDoc(doc(db, 'transactions', id));
     if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
     const tx = Object.assign({ id: id }, txSnap.data());
@@ -1692,6 +1791,7 @@ try {
   };
 
   window.delTx = async function(id) {
+    if (!requireAdmin()) return;
     const txSnap = await getDoc(doc(db, 'transactions', id));
     if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
     const tx = txSnap.data();
@@ -1715,6 +1815,7 @@ try {
   };
 
   window.delRm = async function(id) {
+    if (!requireAdmin()) return;
     if (!confirm('삭제하시겠습니까?\n※ CA 입고로 반영된 재고도 함께 취소됩니다.')) return;
     const rmRef = doc(db, 'removals', id);
     const rmSnap = await getDoc(rmRef);
@@ -1728,6 +1829,7 @@ try {
   };
 
   window.editTx = async function(id) {
+    if (!requireAdmin()) return;
     const txSnap = await getDoc(doc(db, 'transactions', id));
     if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
     const tx = Object.assign({ id: id }, txSnap.data());
@@ -1752,6 +1854,7 @@ try {
   };
 
   window.saveTx = async function() {
+    if (!requireAdmin()) return;
     if (!editingTxId) return;
     const txSnap = await getDoc(doc(db, 'transactions', editingTxId));
     if (!txSnap.exists()) { toast('내역을 찾을 수 없습니다.', 'ng'); return; }
@@ -1793,6 +1896,7 @@ try {
   };
 
   window.editRm = async function(id) {
+    if (!requireAdmin()) return;
     const rmSnap = await getDoc(doc(db, 'removals', id));
     if (!rmSnap.exists()) { toast('리무벌 내역을 찾을 수 없습니다.', 'ng'); return; }
     const r = rmSnap.data();
@@ -1813,8 +1917,8 @@ try {
     if (!p) { toast('상품을 찾을 수 없습니다.', 'ng'); return; }
     editingProdId = id;
     document.getElementById('p-mo-title').textContent = '상품 수정';
-    document.getElementById('p-stock-wrap').style.display = '';
-    document.getElementById('p-del-btn').style.display = '';
+    document.getElementById('p-stock-wrap').style.display = isAdmin() ? '' : 'none';
+    document.getElementById('p-del-btn').style.display = isAdmin() ? '' : 'none';
     sv('p-name', p.name);
     sv('p-asin', p.asin || '');
     sv('p-fnsku', p.fnsku || '');
@@ -1827,6 +1931,7 @@ try {
   };
 
   window.deleteProd = async function() {
+    if (!requireAdmin()) return;
     if (!editingProdId) return;
     const p = prods.find(function(x) { return x.id === editingProdId; });
     if (!p) { toast('상품을 찾을 수 없습니다.', 'ng'); return; }
@@ -1851,6 +1956,7 @@ try {
   };
 
   window.exportCSV = async function() {
+    if (!requireAdmin()) return;
     toast('전체 내역 로드 중...', 'br');
     const snap = await getDocs(collection(db, 'transactions'));
     const rows = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); }));
@@ -1865,6 +1971,7 @@ try {
   };
 
   window.openMo = function(id) {
+    if (id === 'mo-rm' && !requireAdmin()) return;
     const t = today();
     if (id === 'mo-in') {
       sv('i-date', t); sv('i-qty', ''); sv('i-box', ''); sv('i-plt', ''); sv('i-awb', ''); sv('i-note', '');
