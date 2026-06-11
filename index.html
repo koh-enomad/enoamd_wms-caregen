@@ -26,10 +26,11 @@
   각 작업 지점은 코드 내 "TODO[Pn]:" 주석으로 표시됨. Cursor에서 검색하세요.
 
   ※ 데이터 모델
-    products/{id}      : name, asin, fnsku, upc, boxQty, minStock, currentStock, note, createdAt
-    transactions/{id}  : date, type(입고|출고), status(requested|completed), product, productId, qty, balance, txType, pltbox, tracking, note, fileUrl?, fileName?, removalId?, createdAt
-    removals/{id}      : date, product, outQty, tracking, caQty, caDate, note, inboundTxId?, createdAt
-    _meta/seeded       : seed 중복방지 플래그 (삭제하면 재적재됨)
+    companies/{id}     : name, slug, clientEmails[], warehouse, note, createdAt  (id = slug)
+    products/{id}      : companyId, name, asin, fnsku, upc, boxQty, minStock, currentStock, note, createdAt
+    transactions/{id}  : companyId, date, type, status, product, productId, qty, balance, ...
+    removals/{id}      : companyId, date, product, outQty, tracking, ...
+    _meta/seeded       : seed 중복방지 플래그
 
   ※ 재고 일관성 규칙
     - status='requested' : 재고·balance 미반영 (balance=null)
@@ -65,6 +66,7 @@ body{font-family:'IBM Plex Sans KR',sans-serif;background:var(--bg);color:var(--
 .nav-sep{color:var(--th);margin:0 4px}
 .nav-client{font-size:13px;color:var(--tm)}
 .nav-right{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--th)}
+.company-select{padding:4px 10px;font-size:12px;border:1px solid var(--bd2);border-radius:var(--r);max-width:180px;background:var(--sur);color:var(--tx)}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--th);display:inline-block}
 .dot.ok{background:var(--ok)}.dot.ng{background:var(--ng)}.dot.wn{background:var(--wn)}
 .wrap{display:flex;min-height:calc(100vh - 52px)}
@@ -163,9 +165,10 @@ body.client-mode .admin-only{display:none!important}
     <div class="nav-logo">EN</div>
     <span class="nav-name">ENOMAD</span>
     <span class="nav-sep">/</span>
-    <span class="nav-client">케어젠 WMS</span>
+    <span class="nav-client" id="nav-client-label">WMS</span>
   </div>
   <div class="nav-right">
+    <select id="company-select" class="company-select admin-only" onchange="switchCompany(this.value)" title="관리 업체 선택"></select>
     <span class="dot" id="fb-dot"></span>
     <span id="fb-msg">연결 중...</span>
     <span id="role-badge" class="role-badge"></span>
@@ -183,6 +186,7 @@ body.client-mode .admin-only{display:none!important}
     <button class="nb" data-page="inbound"><span class="ni">⬇️</span>입고 처리</button>
     <button class="nb" data-page="outbound"><span class="ni">⬆️</span>출고 처리</button>
     <button class="nb" data-page="history"><span class="ni">📋</span>입출고 내역</button>
+    <button class="nb admin-only" data-page="companies"><span class="ni">🏢</span>업체 관리</button>
     <button class="nb admin-only" data-page="removals"><span class="ni">↩️</span>리무벌 관리</button>
     <button class="nb admin-only" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
     <!-- TODO[P4]: 입고예정(ETA) 관리 메뉴 추가
@@ -202,8 +206,8 @@ body.client-mode .admin-only{display:none!important}
     <!-- DASHBOARD -->
     <div class="page on" id="pg-dash">
       <div class="ph">
-        <div class="ph-title">케어젠 재고 현황</div>
-        <div class="ph-sub">CA Vernon 창고 기준 · <span id="up-at">로딩 중...</span></div>
+        <div class="ph-title" id="ph-dash-title">재고 현황</div>
+        <div class="ph-sub"><span id="ph-dash-wh"></span><span id="ph-dash-at-wrap"> · <span id="up-at">로딩 중...</span></span></div>
       </div>
       <div class="metrics">
         <div class="mc a"><div class="mc-lbl">총 SKU</div><div class="mc-val" id="m-sku">—</div><div class="mc-unit">등록 상품</div></div>
@@ -239,7 +243,7 @@ body.client-mode .admin-only{display:none!important}
     <!-- PRODUCTS -->
     <div class="page" id="pg-products">
       <div class="ph"><div class="ph-row">
-        <div><div class="ph-title">상품 관리</div><div class="ph-sub">케어젠 취급 상품</div></div>
+        <div><div class="ph-title">상품 관리</div><div class="ph-sub" id="ph-products-sub">취급 상품</div></div>
         <button class="btn btn-p" onclick="openMo('mo-prod')">+ 상품 등록</button>
       </div></div>
       <div class="card">
@@ -354,6 +358,21 @@ body.client-mode .admin-only{display:none!important}
       </div>
     </div>
 
+    <!-- COMPANIES (Admin) -->
+    <div class="page" id="pg-companies">
+      <div class="ph"><div class="ph-row">
+        <div><div class="ph-title">업체 관리</div><div class="ph-sub">고객사 등록 · Client 계정 연결</div></div>
+        <button class="btn btn-p" onclick="openMo('mo-company')">+ 업체 등록</button>
+      </div></div>
+      <div class="card">
+        <div class="card-hd"><span class="card-title">등록 업체</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>업체명</th><th>Slug</th><th>Client 이메일</th><th>창고</th><th>비고</th><th></th></tr></thead>
+          <tbody id="tb-companies"></tbody>
+        </table></div>
+      </div>
+    </div>
+
     <!-- IMPORT -->
     <div class="page" id="pg-import">
       <div class="ph">
@@ -402,6 +421,20 @@ body.client-mode .admin-only{display:none!important}
 </div><!-- /app-shell -->
 
 <!-- MODALS -->
+<div class="mo hide" id="mo-company">
+  <div class="mo-box">
+    <div class="mo-hd"><span class="mo-title" id="co-mo-title">업체 등록</span><button class="mo-x" onclick="closeMo('mo-company')">×</button></div>
+    <div class="mo-bd"><div class="g2">
+      <div class="fg s2"><label>업체명 *</label><input id="co-name" placeholder="예: 케어젠" oninput="onCoNameInput()"></div>
+      <div class="fg s2"><label>Slug (Storage 경로 ID) *</label><input id="co-slug" placeholder="caregen" pattern="[a-z0-9-]+"><div class="file-hint">영문 소문자·숫자·하이픈 · 등록 후 변경 불가</div></div>
+      <div class="fg s2"><label>Client 로그인 이메일</label><textarea id="co-emails" placeholder="한 줄에 하나 (예: wms@caregen.com)"></textarea></div>
+      <div class="fg s2"><label>창고 / 거점</label><input id="co-warehouse" placeholder="예: CA Vernon 창고"></div>
+      <div class="fg s2"><label>비고</label><textarea id="co-note"></textarea></div>
+    </div></div>
+    <div class="mo-ft"><button class="btn" onclick="closeMo('mo-company')">취소</button><button class="btn btn-p" onclick="saveCompany()">저장</button></div>
+  </div>
+</div>
+
 <div class="mo hide" id="mo-prod">
   <div class="mo-box">
     <div class="mo-hd"><span class="mo-title" id="p-mo-title">상품 등록</span><button class="mo-x" onclick="closeMo('mo-prod')">×</button></div>
@@ -539,8 +572,7 @@ const FB_CFG = {
   appId: "1:701934733796:web:f33f730ebaf458ccee1ff1"
 };
 
-const CLIENT = 'caregen';
-// Storage 경로: ${CLIENT}/inbound/ | ${CLIENT}/outbound/ | ${CLIENT}/invoice/
+const DEFAULT_COMPANY_ID = 'caregen';
 
 // ── 계정 역할 (Firebase Auth 이메일 → admin | client) ─────────
 // Firebase Console에서 계정 생성 후 아래 목록에 이메일 추가
@@ -607,6 +639,8 @@ let db;
 let fbApp;
 let auth;
 let userRole = null;
+let companies = [];
+let activeCompanyId = null;
 let storage;
 let appStarted = false;
 let prods = [];
@@ -620,6 +654,7 @@ const pgState = {
 let editingProdId = null;
 let editingTxId = null;
 let editingRmId = null;
+let editingCompanyId = null;
 
 // ── 모든 window 함수 먼저 선언 ───────────────────────────────
 // (초기화 완료 전 클릭해도 에러 없이 토스트만 표시)
@@ -635,6 +670,7 @@ window.closeMo     = function(id) {
     document.getElementById('p-stock-wrap').style.display = 'none';
     document.getElementById('p-del-btn').style.display = 'none';
   }
+  if (id === 'mo-company') editingCompanyId = null;
   if (id === 'mo-tx') editingTxId = null;
   if (id === 'mo-rm') {
     editingRmId = null;
@@ -674,6 +710,9 @@ window.pageHistPrev = notReady;
 window.pageHistNext = notReady;
 window.onImportFileSelect = notReady;
 window.runBulkImport = notReady;
+window.switchCompany = notReady;
+window.saveCompany   = notReady;
+window.onCoNameInput = notReady;
 
 // ── 모달 오버레이 클릭 닫기 ───────────────────────────────────
 document.querySelectorAll('.mo').forEach(function(mo) {
@@ -689,11 +728,12 @@ document.querySelectorAll('.nb[data-page]').forEach(function(btn) {
     document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('on'); });
     this.classList.add('on');
     const pg = this.dataset.page;
-    if (!isAdmin() && (pg === 'removals' || pg === 'import')) {
+    if (!isAdmin() && (pg === 'removals' || pg === 'import' || pg === 'companies')) {
       toast('ENOMAD 관리자만 접근할 수 있습니다.', 'ng');
       return;
     }
     document.getElementById('pg-' + pg).classList.add('on');
+    if (pg === 'companies') await loadCompaniesPage();
     if (pg === 'inbound')  await window.loadIn();
     if (pg === 'outbound') await window.loadOut();
     if (pg === 'history')  await window.loadHist();
@@ -722,33 +762,87 @@ function requireAdmin(msg) {
   return true;
 }
 
+function slugify(name) {
+  return String(name || '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'company';
+}
+
+function parseEmailList(str) {
+  return String(str || '').split(/[\n,;]+/).map(function(s) { return s.trim().toLowerCase(); }).filter(Boolean);
+}
+
+function activeCo() {
+  return companies.find(function(c) { return c.id === activeCompanyId; }) || null;
+}
+
+function companySlug() {
+  const co = activeCo();
+  return (co && co.slug) || activeCompanyId || DEFAULT_COMPANY_ID;
+}
+
+function belongsToActiveCo(doc) {
+  return (doc.companyId || DEFAULT_COMPANY_ID) === activeCompanyId;
+}
+
+function resolveClientCompanyId(email) {
+  const e = (email || '').toLowerCase().trim();
+  for (var i = 0; i < companies.length; i++) {
+    const emails = companies[i].clientEmails || [];
+    for (var j = 0; j < emails.length; j++) {
+      if (String(emails[j]).toLowerCase() === e) return companies[i].id;
+    }
+  }
+  if (AUTH_ROLES.client.some(function(a) { return a.toLowerCase() === e; })) return DEFAULT_COMPANY_ID;
+  if (e.endsWith('@caregen.com') || e.includes('caregen')) return DEFAULT_COMPANY_ID;
+  return null;
+}
+
+function updateCompanyUI() {
+  const co = activeCo();
+  const name = co ? co.name : '—';
+  const wh = co && co.warehouse ? co.warehouse : '';
+  document.getElementById('ph-dash-title').textContent = name + ' 재고 현황';
+  document.getElementById('ph-dash-wh').textContent = wh || '창고 미지정';
+  document.getElementById('ph-products-sub').textContent = name + ' 취급 상품';
+  const navClient = document.getElementById('nav-client-label');
+  const badge = document.getElementById('role-badge');
+  if (isAdmin()) {
+    navClient.textContent = name + ' WMS · Admin';
+    if (badge) badge.textContent = 'Admin';
+  } else {
+    document.querySelector('.nav-name').textContent = name;
+    navClient.textContent = 'WMS';
+    if (badge) { badge.textContent = name; badge.style.background = 'var(--ok-bg)'; badge.style.color = 'var(--ok)'; }
+  }
+  const sel = document.getElementById('company-select');
+  if (sel && isAdmin()) {
+    sel.innerHTML = companies.map(function(c) {
+      return '<option value="' + escHtml(c.id) + '"' + (c.id === activeCompanyId ? ' selected' : '') + '>' + escHtml(c.name) + '</option>';
+    }).join('');
+  }
+}
+
 function applyRoleUI() {
   document.body.classList.toggle('client-mode', isClient());
   document.body.classList.toggle('admin-mode', isAdmin());
   const badge = document.getElementById('role-badge');
-  const navName = document.querySelector('.nav-name');
-  const navClient = document.querySelector('.nav-client');
   if (isAdmin()) {
     badge.textContent = 'Admin';
     badge.style.background = 'var(--brand-lt)';
     badge.style.color = 'var(--brand-tx)';
-    navName.textContent = 'ENOMAD';
-    navClient.textContent = '케어젠 WMS · Admin';
+    document.querySelector('.nav-name').textContent = 'ENOMAD';
     document.getElementById('ph-inbound-title').textContent = '입고 처리';
     document.getElementById('ph-inbound-sub').textContent = '요청 등록 → 완료 처리 시 재고 반영';
     document.getElementById('ph-outbound-title').textContent = '출고 처리';
     document.getElementById('ph-outbound-sub').textContent = 'FBA · B2C · B2B · 요청 → 완료 시 재고 차감';
   } else {
-    badge.textContent = '케어젠';
-    badge.style.background = 'var(--ok-bg)';
-    badge.style.color = 'var(--ok)';
-    navName.textContent = '케어젠';
-    navClient.textContent = 'WMS';
     document.getElementById('ph-inbound-title').textContent = '입고 요청';
     document.getElementById('ph-inbound-sub').textContent = '입고 요청 등록 · ENOMAD 확인 후 처리됩니다';
     document.getElementById('ph-outbound-title').textContent = '출고 요청';
     document.getElementById('ph-outbound-sub').textContent = '출고 요청 등록 · ENOMAD 확인 후 처리됩니다';
   }
+  updateCompanyUI();
 }
 
 // ── Firebase + Auth ────────────────────────────────────────────
@@ -826,22 +920,50 @@ try {
 
   if (!metaSnap.exists()) {
     setFbStatus('초기 데이터 적재 중...', 'wn');
+    await setDoc(doc(db, 'companies', DEFAULT_COMPANY_ID), {
+      name: '케어젠', slug: DEFAULT_COMPANY_ID,
+      clientEmails: AUTH_ROLES.client.slice(),
+      warehouse: 'CA Vernon 창고', note: '', createdAt: serverTimestamp()
+    });
     for (const p of SEED_PRODS) {
       const { id, ...data } = p;
-      await setDoc(doc(db, 'products', id), { ...data, createdAt: serverTimestamp() });
+      await setDoc(doc(db, 'products', id), { ...data, companyId: DEFAULT_COMPANY_ID, createdAt: serverTimestamp() });
     }
     const oldTx = await getDocs(collection(db, 'transactions'));
     for (const d of oldTx.docs) await deleteDoc(d.ref);
     for (const t of SEED_TXS) {
-      await addDoc(collection(db, 'transactions'), { ...t, createdAt: serverTimestamp() });
+      await addDoc(collection(db, 'transactions'), { ...t, companyId: DEFAULT_COMPANY_ID, createdAt: serverTimestamp() });
     }
     const oldRm = await getDocs(collection(db, 'removals'));
     for (const d of oldRm.docs) await deleteDoc(d.ref);
     for (const r of SEED_RMS) {
-      await addDoc(collection(db, 'removals'), { ...r, createdAt: serverTimestamp() });
+      await addDoc(collection(db, 'removals'), { ...r, companyId: DEFAULT_COMPANY_ID, createdAt: serverTimestamp() });
     }
-    await setDoc(metaRef, { seededAt: serverTimestamp(), v: 2 });
+    await setDoc(metaRef, { seededAt: serverTimestamp(), v: 3 });
     toast('케어젠 기초 데이터 적재 완료', 'ok');
+  }
+
+  async function ensureDefaultCompany() {
+    const ref = doc(db, 'companies', DEFAULT_COMPANY_ID);
+    if (!(await getDoc(ref)).exists()) {
+      await setDoc(ref, {
+        name: '케어젠', slug: DEFAULT_COMPANY_ID,
+        clientEmails: AUTH_ROLES.client.slice(),
+        warehouse: 'CA Vernon 창고', note: '', createdAt: serverTimestamp()
+      });
+    }
+  }
+
+  async function migrateCompanyId() {
+    await ensureDefaultCompany();
+    const cols = ['products', 'transactions', 'removals'];
+    for (var ci = 0; ci < cols.length; ci++) {
+      const snap = await getDocs(collection(db, cols[ci]));
+      for (var i = 0; i < snap.docs.length; i++) {
+        const d = snap.docs[i];
+        if (!d.data().companyId) await updateDoc(d.ref, { companyId: DEFAULT_COMPANY_ID });
+      }
+    }
   }
 
   async function migrateTxStatus() {
@@ -857,14 +979,37 @@ try {
     if (n) console.log('[migrateTxStatus]', n, '건 → completed');
   }
 
+  await migrateCompanyId();
   await migrateTxStatus();
+
+  async function loadCompaniesList() {
+    const snap = await getDocs(query(collection(db, 'companies'), orderBy('name')));
+    companies = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+  }
+
+  async function initActiveCompany(email) {
+    await loadCompaniesList();
+    if (!companies.length) await ensureDefaultCompany(), await loadCompaniesList();
+    if (isClient()) {
+      activeCompanyId = resolveClientCompanyId(email);
+      if (!activeCompanyId) throw new Error('등록된 업체에 연결되지 않은 계정입니다.');
+    } else {
+      const saved = localStorage.getItem('wms_company');
+      activeCompanyId = (saved && companies.some(function(c) { return c.id === saved; })) ? saved : companies[0].id;
+    }
+  }
+
+  const loginEmail = auth.currentUser ? auth.currentUser.email : '';
+  await initActiveCompany(loginEmail);
+  applyRoleUI();
 
   // ── 초기화 완료 후 실제 함수 등록 ────────────────────────────
 
   // PRODUCTS
   async function loadProds() {
     const snap = await getDocs(query(collection(db, 'products'), orderBy('name')));
-    prods = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    prods = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+      .filter(belongsToActiveCo);
     window._prods = prods;
     renderProds();
     fillSels();
@@ -951,6 +1096,7 @@ try {
     var stock = 0;
     snap.docs.forEach(function(d) {
       const t = d.data();
+      if (!belongsToActiveCo(t)) return;
       if (!txMatchesProduct(t, p)) return;
       if (!isTxCompleted(t)) return;
       if (t.type === '입고') stock += (t.qty || 0);
@@ -999,7 +1145,7 @@ try {
 
   function storageErrorMsg(e) {
     const map = {
-      'storage/unauthorized': 'Storage 권한 없음 — Rules에서 ' + CLIENT + '/outbound/ write 허용 확인',
+      'storage/unauthorized': 'Storage 권한 없음 — Rules에서 ' + companySlug() + '/outbound/ write 허용 확인',
       'storage/unauthenticated': 'Storage 인증 필요 — Rules 확인',
       'storage/canceled': '업로드가 취소되었습니다.',
       'storage/unknown': 'Storage 연결 실패 — Firebase Console에서 Storage 활성화 여부 확인',
@@ -1017,7 +1163,7 @@ try {
 
   async function uploadOutboundFile(file, date) {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = CLIENT + '/outbound/' + date + '_' + Date.now() + '_' + safeName;
+    const path = companySlug() + '/outbound/' + date + '_' + Date.now() + '_' + safeName;
     const storageRef = ref(storage, path);
     await uploadBytes(storageRef, file, { contentType: outFileContentType(file) });
     const fileUrl = await getDownloadURL(storageRef);
@@ -1027,7 +1173,7 @@ try {
   async function recalcBalances(p) {
     const snap = await getDocs(collection(db, 'transactions'));
     const txs = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
-      .filter(function(t) { return txMatchesProduct(t, p); }));
+      .filter(function(t) { return belongsToActiveCo(t) && txMatchesProduct(t, p); }));
     var balance = 0;
     for (var i = 0; i < txs.length; i++) {
       const t = txs[i];
@@ -1049,6 +1195,7 @@ try {
       const d = txSnap.docs[i];
       const t = d.data();
       if (t.productId === productId || t.product === oldName) {
+        if (!belongsToActiveCo(t)) continue;
         await updateDoc(d.ref, { product: newName, productId: productId });
       }
     }
@@ -1056,6 +1203,7 @@ try {
     for (var j = 0; j < rmSnap.docs.length; j++) {
       const r = rmSnap.docs[j].data();
       if (r.product === oldName) {
+        if (!belongsToActiveCo(r)) continue;
         await updateDoc(rmSnap.docs[j].ref, { product: newName });
       }
     }
@@ -1116,6 +1264,7 @@ try {
       date: caDate || today(),
       type: '입고',
       status: 'completed',
+      companyId: activeCompanyId,
       product: productName,
       productId: p.id,
       qty: caQty,
@@ -1172,7 +1321,8 @@ try {
   async function getAllTxs(forceRefresh) {
     if (!forceRefresh && txCache) return txCache;
     const snap = await getDocs(collection(db, 'transactions'));
-    txCache = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    txCache = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+      .filter(belongsToActiveCo);
     return txCache;
   }
 
@@ -1223,13 +1373,7 @@ try {
   async function loadDash() {
     const now = new Date();
     const ms = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    let allTxs;
-    try {
-      allTxs = await getAllTxs();
-    } catch (err) {
-      toast('대시보드 로드 실패: ' + err.message, 'ng');
-      allTxs = [];
-    }
+    const allTxs = await getAllTxs();
     const txs = sortTxByDateDesc(allTxs).slice(0, 20);
     const tot  = prods.reduce(function(s, p) { return s + (p.currentStock || 0); }, 0);
     const pendIn  = allTxs.filter(function(t) { return t.type === '입고' && isTxRequested(t); }).length;
@@ -1391,7 +1535,8 @@ try {
   // REMOVALS
   async function loadRm() {
     const snap = await getDocs(query(collection(db, 'removals'), orderBy('date', 'desc')));
-    const rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    const rows = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+      .filter(belongsToActiveCo);
     document.getElementById('tb-rm').innerHTML = rows.map(function(r) {
       return '<tr><td>' + r.date + '</td><td class="fw5">' + r.product + '</td>' +
         '<td class="tr mono">' + r.outQty + '</td>' +
@@ -1523,7 +1668,8 @@ try {
       const p = prods.find(function(x) { return x.name === r.product; });
       if (!p) continue;
       await addDoc(collection(db, 'transactions'), {
-        date: r.date, type: r.type, status: 'completed', product: r.product, productId: p.id,
+        date: r.date, type: r.type, status: 'completed', companyId: activeCompanyId,
+        product: r.product, productId: p.id,
         qty: r.qty, balance: 0, txType: r.type === '입고' ? '입고' : 'BULK',
         pltbox: '', tracking: '', note: r.note, createdAt: serverTimestamp()
       });
@@ -1543,7 +1689,87 @@ try {
     await window.reload();
   };
 
+  async function loadCompaniesPage() {
+    await loadCompaniesList();
+    renderCompaniesPage();
+  }
+
+  function renderCompaniesPage() {
+    document.getElementById('tb-companies').innerHTML = companies.map(function(c) {
+      const emails = (c.clientEmails || []).join(', ') || '—';
+      return '<tr><td class="fw5">' + escHtml(c.name) + '</td>' +
+        '<td class="mono tx-sm">' + escHtml(c.slug || c.id) + '</td>' +
+        '<td class="tx-sm ellip" title="' + escHtml(emails) + '">' + escHtml(emails) + '</td>' +
+        '<td>' + escHtml(c.warehouse || '—') + '</td>' +
+        '<td class="tx-sm tx-m ellip">' + escHtml(c.note || '') + '</td>' +
+        '<td class="btn-row"><button class="btn btn-sm" onclick="editCompany(\'' + c.id + '\')">수정</button>' +
+        '<button class="btn btn-sm btn-p" onclick="switchCompany(\'' + c.id + '\')">선택</button></td></tr>';
+    }).join('') || empty(6, '등록된 업체 없음');
+  }
+
   // ── 실제 함수를 window에 등록 ─────────────────────────────────
+  window.switchCompany = async function(id) {
+    if (!requireAdmin() || !id) return;
+    if (id === activeCompanyId) return;
+    activeCompanyId = id;
+    localStorage.setItem('wms_company', id);
+    invalidateTxCache();
+    updateCompanyUI();
+    await window.reload();
+    toast((activeCo() ? activeCo().name : id) + ' 업체로 전환', 'ok');
+  };
+
+  window.onCoNameInput = function() {
+    if (editingCompanyId) return;
+    sv('co-slug', slugify(gv('co-name')));
+  };
+
+  window.saveCompany = async function() {
+    if (!requireAdmin()) return;
+    const name = gv('co-name');
+    var slug = gv('co-slug').toLowerCase();
+    if (!name || !slug) { toast('업체명·Slug 필수 입력', 'ng'); return; }
+    if (!/^[a-z0-9-]+$/.test(slug)) { toast('Slug는 영문 소문자·숫자·하이픈만 가능', 'ng'); return; }
+    const emails = parseEmailList(document.getElementById('co-emails').value);
+    const data = {
+      name: name, slug: slug, clientEmails: emails,
+      warehouse: gv('co-warehouse'), note: gv('co-note'),
+      updatedAt: serverTimestamp()
+    };
+    if (editingCompanyId) {
+      await updateDoc(doc(db, 'companies', editingCompanyId), data);
+      toast('업체 정보가 수정되었습니다.', 'ok');
+    } else {
+      if ((await getDoc(doc(db, 'companies', slug))).exists()) {
+        toast('이미 사용 중인 Slug입니다.', 'ng'); return;
+      }
+      data.createdAt = serverTimestamp();
+      await setDoc(doc(db, 'companies', slug), data);
+      toast('업체가 등록되었습니다.', 'ok');
+    }
+    editingCompanyId = null;
+    await loadCompaniesList();
+    updateCompanyUI();
+    window.closeMo('mo-company');
+    const pg = document.getElementById('pg-companies');
+    if (pg && pg.classList.contains('on')) renderCompaniesPage();
+  };
+
+  window.editCompany = function(id) {
+    if (!requireAdmin()) return;
+    const c = companies.find(function(x) { return x.id === id; });
+    if (!c) { toast('업체를 찾을 수 없습니다.', 'ng'); return; }
+    editingCompanyId = id;
+    document.getElementById('co-mo-title').textContent = '업체 수정';
+    sv('co-name', c.name);
+    sv('co-slug', c.slug || c.id);
+    document.getElementById('co-slug').readOnly = true;
+    document.getElementById('co-emails').value = (c.clientEmails || []).join('\n');
+    sv('co-warehouse', c.warehouse || '');
+    sv('co-note', c.note || '');
+    document.getElementById('mo-company').classList.remove('hide');
+  };
+
   window.reload = async function() {
     invalidateTxCache();
     await loadProds();
@@ -1568,6 +1794,7 @@ try {
     if (!name) { toast('상품명을 입력해주세요.', 'ng'); return; }
     const data = {
       name,
+      companyId: activeCompanyId,
       asin: gv('p-asin'),
       fnsku: gv('p-fnsku'),
       upc: gv('p-upc'),
@@ -1648,7 +1875,8 @@ try {
     const qty = resolveQty(p, 'i-box', 'i-qty', 'i-plt');
     if (!qty) { toast('수량 또는 BOX 수량을 입력해주세요.', 'ng'); return; }
     await addDoc(collection(db, 'transactions'), {
-      date, type: '입고', status: 'requested', product: pn, productId: p.id, qty, balance: null, txType: '입고',
+      date, type: '입고', status: 'requested', companyId: activeCompanyId,
+      product: pn, productId: p.id, qty, balance: null, txType: '입고',
       pltbox: gv('i-plt'), tracking: '', note: gv('i-note'), createdAt: serverTimestamp()
     });
     invalidateTxCache();
@@ -1695,7 +1923,8 @@ try {
       if (!check.ok) { toast(check.msg, 'ng'); return; }
     }
     const txRef = await addDoc(collection(db, 'transactions'), {
-      date, type: '출고', status: 'requested', product: pn, productId: p.id, qty, balance: null, txType,
+      date, type: '출고', status: 'requested', companyId: activeCompanyId,
+      product: pn, productId: p.id, qty, balance: null, txType,
       pltbox: gv('o-plt'), tracking: gv('o-track'), note: gv('o-note'), createdAt: serverTimestamp()
     });
     if (file) {
@@ -1750,7 +1979,8 @@ try {
       toast('리무벌 오더가 수정되었습니다.', 'ok');
     } else {
       rmRef = await addDoc(collection(db, 'removals'), {
-        date, product, outQty, tracking, caQty, caDate, note, createdAt: serverTimestamp()
+        date, product, outQty, tracking, caQty, caDate, note,
+        companyId: activeCompanyId, createdAt: serverTimestamp()
       });
       if (caQty > 0) {
         await applyRemovalInbound(rmRef, product, caQty, caDate, note, null, tracking);
@@ -1933,7 +2163,9 @@ try {
     const p = prods.find(function(x) { return x.id === editingProdId; });
     if (!p) { toast('상품을 찾을 수 없습니다.', 'ng'); return; }
     const txSnap = await getDocs(collection(db, 'transactions'));
-    const hasTx = txSnap.docs.some(function(d) { return txMatchesProduct(d.data(), p); });
+    const hasTx = txSnap.docs.some(function(d) {
+      return belongsToActiveCo(d.data()) && txMatchesProduct(d.data(), p);
+    });
     if (hasTx) {
       toast('입출고 내역이 있는 상품은 삭제할 수 없습니다.', 'ng');
       return;
@@ -1956,7 +2188,8 @@ try {
     if (!requireAdmin()) return;
     toast('전체 내역 로드 중...', 'br');
     const snap = await getDocs(collection(db, 'transactions'));
-    const rows = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); }));
+    const rows = sortTxChronological(snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+      .filter(belongsToActiveCo));
     const h = ['날짜', '구분', '상태', '상품명', '수량', '잔여재고', '유형', 'Tracking', '비고'];
     const csv = [h].concat(rows.map(function(r) {
       return [r.date, r.type, txEffectiveStatus(r), r.product, r.qty, isTxRequested(r) ? '' : (r.balance != null ? r.balance : ''), r.txType || '', r.tracking || '', r.note || ''];
@@ -1969,6 +2202,7 @@ try {
 
   window.openMo = function(id) {
     if (id === 'mo-rm' && !requireAdmin()) return;
+    if (id === 'mo-company' && !requireAdmin()) return;
     const t = today();
     if (id === 'mo-in') {
       sv('i-date', t); sv('i-qty', ''); sv('i-box', ''); sv('i-plt', ''); sv('i-note', '');
@@ -1984,6 +2218,12 @@ try {
       document.getElementById('o-file').value = '';
       document.getElementById('o-file-name').textContent = '선택된 파일 없음';
       fillSels(); onOutProdChange();
+    }
+    if (id === 'mo-company') {
+      editingCompanyId = null;
+      document.getElementById('co-mo-title').textContent = '업체 등록';
+      sv('co-name', ''); sv('co-slug', ''); sv('co-emails', ''); sv('co-warehouse', ''); sv('co-note', '');
+      document.getElementById('co-slug').readOnly = false;
     }
     if (id === 'mo-rm') {
       editingRmId = null;
