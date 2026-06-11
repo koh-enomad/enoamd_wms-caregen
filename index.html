@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <!--
 ================================================================================
-  ENOMAD 케어젠 WMS — Cursor AI 작업 가이드
+  ENOMAD WMS — Cursor AI 작업 가이드
 ================================================================================
-  현재 상태: 핵심 골격 동작 (입고·출고·재고·트랜잭션·리무벌 CRUD)
-  배포: GitHub Pages (koh-enomad.github.io) / DB: Firebase Firestore
-  구조: 단일 HTML + CDN Firebase (멀티 고객사·로그인 단계에서 React 전환 권장)
+  현재 상태: 멀티 업체 WMS (입고·출고·재고·트랜잭션·리무벌 CRUD)
+  배포: https://koh-enomad.github.io/enomad-wms/  ·  DB: Firebase Firestore
+  Repo: github.com/koh-enomad/enomad-wms
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │ 작업 우선순위 (위에서부터)                                                │
@@ -43,7 +43,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>케어젠 WMS — ENOMAD</title>
+<title>ENOMAD WMS</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -149,8 +149,8 @@ body.client-mode .admin-only{display:none!important}
 
 <div id="auth-gate" class="auth-gate">
   <div class="auth-box">
-    <div class="ph-title" style="margin-bottom:4px">케어젠 WMS</div>
-    <p class="tx-m tx-sm" style="margin-bottom:20px">ENOMAD / 케어젠 WMS · 로그인</p>
+    <div class="ph-title" style="margin-bottom:4px">ENOMAD WMS</div>
+    <p class="tx-m tx-sm" style="margin-bottom:20px">ENOMAD 창고 관리 · 로그인</p>
     <div class="fg"><label>이메일</label><input type="email" id="auth-email" placeholder="user@enomad.com" autocomplete="username"></div>
     <div class="fg" style="margin-top:12px"><label>비밀번호</label><input type="password" id="auth-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <p id="auth-err" class="tx-sm" style="color:var(--ng);margin-top:10px;min-height:18px"></p>
@@ -174,7 +174,7 @@ body.client-mode .admin-only{display:none!important}
     <span id="role-badge" class="role-badge"></span>
     <span id="auth-user" class="tx-sm tx-m"></span>
     <button class="btn btn-sm" id="btn-logout" onclick="doLogout()">로그아웃</button>
-    <span>CA Vernon 창고</span>
+    <span id="nav-warehouse" class="tx-sm tx-m"></span>
   </div>
 </nav>
 
@@ -805,6 +805,8 @@ function updateCompanyUI() {
   document.getElementById('ph-dash-title').textContent = name + ' 재고 현황';
   document.getElementById('ph-dash-wh').textContent = wh || '창고 미지정';
   document.getElementById('ph-products-sub').textContent = name + ' 취급 상품';
+  const whEl = document.getElementById('nav-warehouse');
+  if (whEl) whEl.textContent = wh || '';
   const navClient = document.getElementById('nav-client-label');
   const badge = document.getElementById('role-badge');
   if (isAdmin()) {
@@ -940,7 +942,7 @@ try {
       await addDoc(collection(db, 'removals'), { ...r, companyId: DEFAULT_COMPANY_ID, createdAt: serverTimestamp() });
     }
     await setDoc(metaRef, { seededAt: serverTimestamp(), v: 3 });
-    toast('케어젠 기초 데이터 적재 완료', 'ok');
+    toast('기초 데이터 적재 완료 (' + DEFAULT_COMPANY_ID + ')', 'ok');
   }
 
   async function ensureDefaultCompany() {
@@ -2196,7 +2198,7 @@ try {
     })).map(function(r) { return r.join(','); }).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = '케어젠_' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.download = (activeCo() ? activeCo().slug : 'export') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
     a.click();
   };
 
