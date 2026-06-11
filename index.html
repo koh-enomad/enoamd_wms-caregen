@@ -188,7 +188,6 @@ body.client-mode .admin-only{display:none!important}
     <button class="nb" data-page="outbound"><span class="ni">⬆️</span>출고 처리</button>
     <button class="nb" data-page="history"><span class="ni">📋</span>입출고 내역</button>
     <button class="nb admin-only" data-page="companies"><span class="ni">🏢</span>업체 관리</button>
-    <button class="nb admin-only" data-page="import"><span class="ni">📤</span>엑셀 업로드</button>
     <!-- TODO[P4]: 입고예정(ETA) 관리 메뉴 추가
          <button class="nb" data-page="eta"><span class="ni">🛫</span>입고 예정</button>
          - 신규 컬렉션 inbound_plans/{id}: product, qty, etd, eta, awb, status(운송중|도착|입고완료)
@@ -692,7 +691,7 @@ document.querySelectorAll('.nb[data-page]').forEach(function(btn) {
     document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('on'); });
     this.classList.add('on');
     const pg = this.dataset.page;
-    if (!isAdmin() && (pg === 'import' || pg === 'companies')) {
+    if (!isAdmin() && pg === 'companies') {
       toast('ENOMAD 관리자만 접근할 수 있습니다.', 'ng');
       return;
     }
@@ -701,7 +700,6 @@ document.querySelectorAll('.nb[data-page]').forEach(function(btn) {
     if (pg === 'outbound') await window.loadOut();
     if (pg === 'history')  await window.loadHist();
     if (pg === 'companies') await window.loadCompanies();
-    if (pg === 'import') { importRows = []; document.getElementById('imp-preview').style.display = 'none'; document.getElementById('btn-imp-run').disabled = true; }
   });
 });
 
